@@ -8,6 +8,7 @@ Features
     Deduplication: Removes duplicate entries to ensure the final list contains only unique subdomains.
     File Management: Handles output file creation, appending results, and error handling.
 
+
 # Prerequisites
 
 Before running the script, ensure you have the following tools installed:
