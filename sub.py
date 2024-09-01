@@ -1,4 +1,5 @@
 import subprocess
+import requests
 
 art = '''
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⢶⣦⣤⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
@@ -55,6 +56,38 @@ def append_to_file(output_file, content_file):
     except Exception as e:
         print(f"[✗] Error appending to file: {e}")
 
+def fetch_crtsh_subdomains(domain):
+    url = f"https://crt.sh/?q={domain}&output=json"
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        data = response.json()
+        subdomains = set()
+        for entry in data:
+            # Extract subdomains from the JSON response
+            subdomain = entry.get('name_value', '')
+            if domain in subdomain:
+                subdomains.add(subdomain)
+        return list(subdomains)
+    except Exception as e:
+        print(f"[✗] Error fetching data from crt.sh: {e}")
+        return []
+
+def deduplicate_file(file_path):
+    try:
+        with open(file_path, 'r') as file:
+            lines = file.readlines()
+        
+        # Remove duplicates by converting list to a set
+        unique_lines = set(line.strip() for line in lines)
+        
+        with open(file_path, 'w') as file:
+            file.write("\n".join(unique_lines) + "\n")
+            
+        print(f"[✓] Deduplication complete. Unique entries saved to '{file_path}'.")
+    except Exception as e:
+        print(f"[✗] Error during deduplication: {e}")
+
 def main():
     domain = input(" 📓 DEATH NOTE: ")
     output_file = 'all_subdomains.txt'
@@ -86,7 +119,19 @@ def main():
     except Exception as e:
         print(f"[✗] Error running Findomain: {e}")
 
-    
+    # Fetch crt.sh subdomains
+    crtsh_subdomains = fetch_crtsh_subdomains(domain)
+    if crtsh_subdomains:
+        print("[✓] crt.sh subdomains fetched successfully.")
+        with open('crtsh_output.txt', 'w') as file:
+            file.write("\n".join(crtsh_subdomains) + "\n")
+        append_to_file(output_file, 'crtsh_output.txt')
+    else:
+        print("[✗] No subdomains found from crt.sh.")
+
+    # Deduplicate the final output file
+    deduplicate_file(output_file)
+
     print(f"All subdomains saved to '{output_file}'")
 
 if __name__ == "__main__":
