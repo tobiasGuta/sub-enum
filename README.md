@@ -25,7 +25,7 @@ Prepare your environment: Make sure the required external tools are installed an
 
 Run the tool: Execute the script and provide a domain when prompted.
     
-    python your_script_name.py
+    python sub.py
     
 Input the domain: When prompted, enter the domain you wish to enumerate.
 
