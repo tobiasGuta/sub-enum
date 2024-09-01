@@ -86,8 +86,7 @@ def main():
     except Exception as e:
         print(f"[✗] Error running Findomain: {e}")
 
-    # Google Dorking functionality removed
-
+    
     print(f"All subdomains saved to '{output_file}'")
 
 if __name__ == "__main__":
