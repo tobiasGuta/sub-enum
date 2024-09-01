@@ -12,7 +12,7 @@ Features
     Google Dorking: Searches Google for subdomains using a query to enhance discovery.
     Result Aggregation: Collects and aggregates results from different tools into a single output file.
 
-Installation
+# Installation
 
 To use this tool, you need to have the following dependencies installed:
 
@@ -20,7 +20,7 @@ To use this tool, you need to have the following dependencies installed:
     sublist3r, subfinder, assetfinder, findomain tools (ensure they are installed and available in your PATH)
 
 
-Usage
+# Usage
 
 Prepare your environment: Make sure the required external tools are installed and accessible.
 
@@ -32,11 +32,11 @@ Input the domain: When prompted, enter the domain you wish to enumerate.
 
 Review the results: The results will be saved in a file named all_subdomains.txt. This file will contain subdomains gathered from various tools and Google dorking.
 
-Notes
+# Notes
 
     Ensure you have the necessary permissions to run these tools and access their outputs.
     This script assumes that the tools are installed and available in the system’s PATH.
 
-Contributing
+# Contributing
 
 Feel free to fork this repository and submit pull requests. If you encounter issues or have feature requests, please open an issue on GitHub.
