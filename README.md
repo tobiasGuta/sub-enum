@@ -22,15 +22,15 @@ To use this tool, you need to have the following dependencies installed:
 
 Usage
 
-    Prepare your environment: Make sure the required external tools are installed and accessible.
+Prepare your environment: Make sure the required external tools are installed and accessible.
 
-    Run the tool: Execute the script and provide a domain when prompted.
+Run the tool: Execute the script and provide a domain when prompted.
     
     python your_script_name.py
     
-    Input the domain: When prompted, enter the domain you wish to enumerate.
+Input the domain: When prompted, enter the domain you wish to enumerate.
 
-    Review the results: The results will be saved in a file named all_subdomains.txt. This file will contain subdomains gathered from various tools and Google dorking.
+Review the results: The results will be saved in a file named all_subdomains.txt. This file will contain subdomains gathered from various tools and Google dorking.
 
 Notes
 
