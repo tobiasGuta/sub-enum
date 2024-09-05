@@ -1,51 +1,64 @@
 # Subdomain Finder Tool
 
-This Python script automates the process of finding subdomains for a given domain. It leverages several tools and services to collect subdomain data and performs deduplication to provide a clean list of unique subdomains.
-Features
+This Python script is a comprehensive tool designed to discover and collect subdomains for a given domain. It integrates multiple subdomain enumeration tools and services to provide a consolidated list of subdomains. The script performs the following tasks:
 
-    Integration with Popular Subdomain Enumeration Tools: Uses sublist3r, subfinder, assetfinder, and findomain to gather subdomains.
-    Data Fetching from crt.sh: Retrieves subdomain information from crt.sh for additional coverage.
-    Deduplication: Removes duplicate entries to ensure the final list contains only unique subdomains.
-    File Management: Handles output file creation, appending results, and error handling.
+    Run Subdomain Enumeration Tools:
+        Sublist3r: A tool to enumerate subdomains using various search engines.
+        Subfinder: A fast subdomain discovery tool.
+        Assetfinder: A tool to discover assets and subdomains.
+        Findomain: A subdomain enumeration tool that searches for subdomains.
 
+    Fetch Subdomains from crt.sh:
+        Uses the crt.sh service to retrieve subdomains listed in SSL certificates for the given domain.
+
+    Combine and Deduplicate Results:
+        Aggregates the results from all tools and services.
+        Removes duplicate entries to ensure a unique list of subdomains.
+
+# Features
+
+    Artistic ASCII Header: Displays a custom ASCII art header at the start of execution.
+    Dynamic File Handling: Manages output files and appends results from various tools.
+    Error Handling: Includes robust error handling and reporting for each step of the process.
+    User Interaction: Prompts the user to enter the domain for which subdomains need to be discovered.
 
 # Prerequisites
 
-Before running the script, ensure you have the following tools installed:
+Ensure you have the following tools installed and accessible in your system's PATH:
 
     sublist3r
     subfinder
     assetfinder
     findomain
-    Python 3.x
-    requests library (pip install requests)
+    Python 3.x with requests library (install via pip install requests)
 
 # Usage
 
-Clone the Repository:
+Clone the repository:
 
-        git clone https://github.com/tobiasGuta/sub-enum.git
-        cd sub-enum
+    git clone https://github.com/tobiasGuta/sub-enum.git
 
-Install Required Python Packages:
+Navigate to the directory:
 
-        pip install requests
+cd sub-enum
 
-Run the Script:
+Run the script:
 
-        python sub.py
+    python sub.py
 
-When prompted, enter the domain name for which you want to find subdomains.
+    Enter the domain when prompted.
 
-Example Output
+Output
 
-The script generates an output file named all_subdomains.txt that contains a list of unique subdomains found from various tools and services.
-Troubleshooting
+    All discovered subdomains will be saved in all_subdomains.txt.
+    Intermediate results are saved in separate files: sublist3r_output.txt, subfinder_output.txt, assetfinder_output.txt, findomain_output.txt, and crtsh_output.txt.
+    Duplicate entries are removed from the final output file.
 
-    Ensure all required tools are installed and accessible from your PATH.
-    Verify network connectivity if crt.sh or other online services fail.
-    Check tool-specific documentation for additional options or updates.
 
-# Contribution
+Acknowledgements
 
-I am actively looking for improvements to this tool. If you find a more successful tool or have suggestions for enhancements, please let me know! Contributions are welcome—feel free to open an issue or submit a pull request.
+    Sublist3r
+    Subfinder
+    Assetfinder
+    Findomain
+    crt.sh
