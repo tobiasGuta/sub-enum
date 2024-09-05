@@ -2,6 +2,8 @@
 
 This Python script is a comprehensive tool designed to discover and collect subdomains for a given domain. It integrates multiple subdomain enumeration tools and services to provide a consolidated list of subdomains. The script performs the following tasks:
 
+![sub](https://github.com/user-attachments/assets/2785a09f-5f33-430c-86a4-65d511b1243d)
+
     Run Subdomain Enumeration Tools:
         Sublist3r: A tool to enumerate subdomains using various search engines.
         Subfinder: A fast subdomain discovery tool.
