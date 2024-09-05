@@ -24,8 +24,8 @@ Before running the script, ensure you have the following tools installed:
 
 Clone the Repository:
 
-        git clone https://github.com/yourusername/subdomain-finder.git
-        cd subdomain-finder
+        git clone https://github.com/tobiasGuta/sub-enum.git
+        cd sub-enum
 
 Install Required Python Packages:
 
