@@ -40,7 +40,7 @@ Clone the repository:
 
 Navigate to the directory:
 
-cd sub-enum
+    cd sub-enum
 
 Run the script:
 
