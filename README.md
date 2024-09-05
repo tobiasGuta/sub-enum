@@ -50,17 +50,22 @@ Run the script:
 
     Enter the domain when prompted.
 
-Output
+# Output
 
     All discovered subdomains will be saved in all_subdomains.txt.
     Intermediate results are saved in separate files: sublist3r_output.txt, subfinder_output.txt, assetfinder_output.txt, findomain_output.txt, and crtsh_output.txt.
     Duplicate entries are removed from the final output file.
 
 
-Acknowledgements
+# Acknowledgements
 
     Sublist3r
     Subfinder
     Assetfinder
     Findomain
     crt.sh
+
+# Future Updates
+
+    I am committed to continually improving this tool. Future updates will include integrations with additional subdomain discovery tools and services. Stay tuned for enhancements that will further expand        its capabilities and provide even more comprehensive results for subdomain enumeration.
+    Feel free to open issues or submit pull requests if you have suggestions for additional tools or features to include.
