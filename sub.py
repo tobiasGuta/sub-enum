@@ -1,5 +1,7 @@
 import subprocess
 import requests
+import re
+
 
 art = '''
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⢶⣦⣤⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
@@ -39,13 +41,21 @@ def run_tool(command, output_file, tool_name):
         result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode == 0:
             print(f"[✓] {tool_name} completed successfully.")
-            # Save the result to the output file
+            # Filter the result to only include valid subdomains
+            filtered_output = filter_subdomains(result.stdout)
+            # Save the filtered result to the output file
             with open(output_file, 'w') as file:
-                file.write(result.stdout)
+                file.write(filtered_output)
         else:
             print(f"[✗] {tool_name} error: {result.stderr}")
     except Exception as e:
         print(f"[✗] Error running {tool_name}: {e}")
+
+def filter_subdomains(output):
+    # Use regex to find valid subdomains
+    subdomain_pattern = re.compile(r'\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b')
+    subdomains = subdomain_pattern.findall(output)
+    return "\n".join(sorted(set(subdomains))) + "\n"
 
 def append_to_file(output_file, content_file):
     try:
@@ -64,7 +74,6 @@ def fetch_crtsh_subdomains(domain):
         data = response.json()
         subdomains = set()
         for entry in data:
-            # Extract subdomains from the JSON response
             subdomain = entry.get('name_value', '')
             if domain in subdomain:
                 subdomains.add(subdomain)
@@ -78,7 +87,6 @@ def deduplicate_file(file_path):
         with open(file_path, 'r') as file:
             lines = file.readlines()
         
-        # Remove duplicates by converting list to a set
         unique_lines = set(line.strip() for line in lines)
         
         with open(file_path, 'w') as file:
@@ -110,9 +118,9 @@ def main():
         result = subprocess.run(['findomain', '--target', domain], capture_output=True, text=True)
         if result.returncode == 0:
             print("[✓] Findomain completed successfully.")
-            # Save the result to the output file
+            filtered_output = filter_subdomains(result.stdout)
             with open('findomain_output.txt', 'w') as file:
-                file.write(result.stdout)
+                file.write(filtered_output)
             append_to_file(output_file, 'findomain_output.txt')
         else:
             print(f"[✗] Findomain error: {result.stderr}")
