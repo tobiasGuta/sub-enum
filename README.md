@@ -1,8 +1,9 @@
 # Subdomain Finder Tool
 
+
 This Python script is a comprehensive tool designed to discover and collect subdomains for a given domain. It integrates multiple subdomain enumeration tools and services to provide a consolidated list of subdomains. The script performs the following tasks:
 
-![sub](https://github.com/user-attachments/assets/2785a09f-5f33-430c-86a4-65d511b1243d)
+https://github.com/user-attachments/assets/d5ab6a9e-ed16-4d2e-96d1-be302520f791
 
 # New Update:
 
