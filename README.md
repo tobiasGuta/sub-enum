@@ -61,7 +61,7 @@ Ensure you have the following tools installed and accessible in your system's PA
     findomain
     dnsx
     httpx
-    Python 3.x with requests library (install via pip install requests)
+    Python 3.x 
 
 # Usage
 
