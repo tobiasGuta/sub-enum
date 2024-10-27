@@ -64,6 +64,8 @@ Run the script:
     Assetfinder
     Findomain
     crt.sh
+    dnsx
+    httpx
 
 # Future Updates
 
