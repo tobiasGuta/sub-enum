@@ -4,6 +4,18 @@ This Python script is a comprehensive tool designed to discover and collect subd
 
 ![sub](https://github.com/user-attachments/assets/2785a09f-5f33-430c-86a4-65d511b1243d)
 
+# New Update:
+
+Improvement: Added domain filtering to ensure that only subdomains of the specified target domain are saved in all_subdomains.txt.
+Improvement: Deduplication is explicitly enforced using a set, both when filtering initial subdomains and again when saving results after dnsx and httpx.
+Improvement: Added dnsx to resolve DNS for each subdomain and httpx to check for live HTTP services. Only live, reachable subdomains are saved to the output.
+Improvement: Added a prompt at the end asking the user if they’d like to see the contents of all_subdomains.txt. This avoids unnecessarily printing long lists but gives users control over viewing the results.
+Improvement: Organized code into distinct functions, added clear function names, comments, and broke down major steps (e.g., filtering, deduplication, and saving).
+Improvement: Structured error handling now gives specific error messages if a command fails or if a tool is missing, using subprocess exceptions and checks for availability before running each tool.
+Improvement: Added a dynamic loading circle to indicate that the tool is running, with a ✅ or ❌ mark at the end of each tool's execution for success or failure.
+Improvement: Progress is simulated using a rotating spinner (|, /, -, \) that updates until the command completes.
+
+
     Run Subdomain Enumeration Tools:
         Sublist3r: A tool to enumerate subdomains using various search engines.
         Subfinder: A fast subdomain discovery tool.
