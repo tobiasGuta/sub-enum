@@ -5,7 +5,7 @@ This Python script is a comprehensive tool designed to discover and collect subd
 
 https://github.com/user-attachments/assets/d5ab6a9e-ed16-4d2e-96d1-be302520f791
 
-### Improvements
+### Update
 
 - **Domain Filtering**  
   Added filtering to ensure that only subdomains of the specified target domain are saved in `all_subdomains.txt`.
