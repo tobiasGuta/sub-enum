@@ -1,7 +1,11 @@
 import subprocess
 import requests
 import re
-
+import shutil
+import os
+import time
+import itertools
+import sys
 
 art = '''
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⢶⣦⣤⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
@@ -36,111 +40,142 @@ art = '''
 
 print(art)
 
-def run_tool(command, output_file, tool_name):
+def check_tool_availability(tool_name):
+    if shutil.which(tool_name) is None:
+        print(f"[✗] {tool_name} not found. Please install it to continue.")
+        return False
+    return True
+
+def run_tool(command, tool_name):
     try:
-        result = subprocess.run(command, capture_output=True, text=True)
-        if result.returncode == 0:
-            print(f"[✓] {tool_name} completed successfully.")
-            # Filter the result to only include valid subdomains
-            filtered_output = filter_subdomains(result.stdout)
-            # Save the filtered result to the output file
-            with open(output_file, 'w') as file:
-                file.write(filtered_output)
+        # Set up loading spinner
+        spinner = itertools.cycle(['|', '/', '-', '\\'])
+        print(f"Running {tool_name}: ", end="", flush=True)
+        
+        # Start tool in a subprocess
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        
+        # Display spinner until process is complete
+        while process.poll() is None:
+            sys.stdout.write(next(spinner))  # Update spinner
+            sys.stdout.flush()
+            time.sleep(0.1)
+            sys.stdout.write("\b")  # Erase spinner for the next character
+        
+        # Capture output
+        stdout, stderr = process.communicate()
+        
+        # Display completion status
+        if process.returncode == 0:
+            print("✅")
+            return filter_subdomains(stdout)
         else:
-            print(f"[✗] {tool_name} error: {result.stderr}")
+            print("❌")
+            print(f"[✗] {tool_name} error: {stderr}")
+            return ""
     except Exception as e:
         print(f"[✗] Error running {tool_name}: {e}")
+        return ""
 
 def filter_subdomains(output):
-    # Use regex to find valid subdomains
     subdomain_pattern = re.compile(r'\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b')
     subdomains = subdomain_pattern.findall(output)
-    return "\n".join(sorted(set(subdomains))) + "\n"
-
-def append_to_file(output_file, content_file):
-    try:
-        with open(content_file, 'r') as file:
-            content = file.readlines()
-        with open(output_file, 'a') as file:
-            file.writelines(content)
-    except Exception as e:
-        print(f"[✗] Error appending to file: {e}")
+    return set(subdomains)
 
 def fetch_crtsh_subdomains(domain):
     url = f"https://crt.sh/?q={domain}&output=json"
     try:
-        response = requests.get(url)
-        response.raise_for_status()
+        print("Fetching crt.sh subdomains: ", end="", flush=True)
+        spinner = itertools.cycle(['|', '/', '-', '\\'])
+        
+        # Make request and show spinner
+        while True:
+            response = requests.get(url)
+            if response.status_code == 200:
+                break
+            sys.stdout.write(next(spinner))
+            sys.stdout.flush()
+            time.sleep(0.1)
+            sys.stdout.write("\b")
+        
         data = response.json()
-        subdomains = set()
-        for entry in data:
-            subdomain = entry.get('name_value', '')
-            if domain in subdomain:
-                subdomains.add(subdomain)
-        return list(subdomains)
+        subdomains = {entry.get('name_value', '') for entry in data if domain in entry.get('name_value', '')}
+        print("✅")
+        return subdomains
     except Exception as e:
+        print("❌")
         print(f"[✗] Error fetching data from crt.sh: {e}")
-        return []
+        return set()
 
-def deduplicate_file(file_path):
+def save_subdomains(subdomains, output_file, domain):
     try:
-        with open(file_path, 'r') as file:
-            lines = file.readlines()
-        
-        unique_lines = set(line.strip() for line in lines)
-        
-        with open(file_path, 'w') as file:
-            file.write("\n".join(unique_lines) + "\n")
-            
-        print(f"[✓] Deduplication complete. Unique entries saved to '{file_path}'.")
+        filtered_subdomains = [sub for sub in subdomains if domain in sub]
+        with open(output_file, 'w') as file:
+            file.write("\n".join(sorted(filtered_subdomains)) + "\n")
+        print(f"[✅] Subdomains saved to '{output_file}'.")
     except Exception as e:
-        print(f"[✗] Error during deduplication: {e}")
+        print(f"[✗] Error saving to file: {e}")
+
+def filter_dnsx_httpx(subdomains, domain):
+    try:
+        with open("temp_subdomains.txt", "w") as file:
+            file.write("\n".join(subdomains))
+        
+        dnsx_command = ["dnsx", "-silent", "-l", "temp_subdomains.txt"]
+        dnsx_result = subprocess.run(dnsx_command, capture_output=True, text=True)
+        if dnsx_result.returncode != 0:
+            print(f"[✗] dnsx error: {dnsx_result.stderr}")
+            return set()
+        
+        httpx_command = ["httpx", "-td", "-silent", "-l", "temp_dnsx_resolved.txt"]
+        with open("temp_dnsx_resolved.txt", "w") as file:
+            file.write(dnsx_result.stdout)
+        
+        httpx_result = subprocess.run(httpx_command, capture_output=True, text=True)
+        if httpx_result.returncode != 0:
+            print(f"[✗] httpx error: {httpx_result.stderr}")
+            return set()
+
+        live_subdomains = {line for line in httpx_result.stdout.strip().splitlines() if domain in line}
+        return live_subdomains
+    except Exception as e:
+        print(f"[✗] Error during dnsx/httpx filtering: {e}")
+        return set()
+    finally:
+        os.remove("temp_subdomains.txt")
+        os.remove("temp_dnsx_resolved.txt")
 
 def main():
     domain = input(" 📓 DEATH NOTE: ")
     output_file = 'all_subdomains.txt'
-    
-    # Ensure output file is empty at the start
-    open(output_file, 'w').close()
-    
-    # Run existing tools
-    run_tool(['sublist3r', '-d', domain, '-o', 'sublist3r_output.txt'], 'sublist3r_output.txt', 'sublist3r')
-    append_to_file(output_file, 'sublist3r_output.txt')
-    
-    run_tool(['subfinder', '-d', domain, '-o', 'subfinder_output.txt'], 'subfinder_output.txt', 'subfinder')
-    append_to_file(output_file, 'subfinder_output.txt')
-    
-    run_tool(['assetfinder', '--subs-only', domain], 'assetfinder_output.txt', 'assetfinder')
-    append_to_file(output_file, 'assetfinder_output.txt')
-    
-    # Handle findomain without specifying an output file
-    try:
-        result = subprocess.run(['findomain', '--target', domain], capture_output=True, text=True)
-        if result.returncode == 0:
-            print("[✓] Findomain completed successfully.")
-            filtered_output = filter_subdomains(result.stdout)
-            with open('findomain_output.txt', 'w') as file:
-                file.write(filtered_output)
-            append_to_file(output_file, 'findomain_output.txt')
-        else:
-            print(f"[✗] Findomain error: {result.stderr}")
-    except Exception as e:
-        print(f"[✗] Error running Findomain: {e}")
 
-    # Fetch crt.sh subdomains
+    tools = {
+        'sublist3r': ['sublist3r', '-d', domain],
+        'subfinder': ['subfinder', '-d', domain],
+        'assetfinder': ['assetfinder', '--subs-only', domain],
+        'findomain': ['findomain', '--target', domain]
+    }
+    all_subdomains = set()
+
+    for tool_name, command in tools.items():
+        if check_tool_availability(command[0]):
+            output = run_tool(command, tool_name)
+            if output:
+                all_subdomains.update(output)
+
     crtsh_subdomains = fetch_crtsh_subdomains(domain)
-    if crtsh_subdomains:
-        print("[✓] crt.sh subdomains fetched successfully.")
-        with open('crtsh_output.txt', 'w') as file:
-            file.write("\n".join(crtsh_subdomains) + "\n")
-        append_to_file(output_file, 'crtsh_output.txt')
-    else:
-        print("[✗] No subdomains found from crt.sh.")
+    all_subdomains.update(crtsh_subdomains)
 
-    # Deduplicate the final output file
-    deduplicate_file(output_file)
+    live_subdomains = filter_dnsx_httpx(all_subdomains, domain)
 
-    print(f"All subdomains saved to '{output_file}'")
+    save_subdomains(live_subdomains, output_file, domain)
+
+    # Ask user if they want to display the output
+    display_output = input("Display Output y/n: ").strip().lower()
+    if display_output == 'y':
+        with open(output_file, 'r') as file:
+            print("\n[Output] Subdomains:\n")
+            print(file.read())
 
 if __name__ == "__main__":
     main()
