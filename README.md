@@ -5,31 +5,32 @@ This Python script is a comprehensive tool designed to discover and collect subd
 
 https://github.com/user-attachments/assets/d5ab6a9e-ed16-4d2e-96d1-be302520f791
 
-# Improvements
-Domain Filtering
+### Improvements
 
-Added filtering to ensure that only subdomains of the specified target domain are saved in all_subdomains.txt.
-Deduplication
+- **Domain Filtering**  
+  Added filtering to ensure that only subdomains of the specified target domain are saved in `all_subdomains.txt`.
 
-Deduplication is explicitly enforced using a set, both when filtering initial subdomains and when saving results after dnsx and httpx, ensuring only unique entries.
-Live Subdomain Validation
+- **Deduplication**  
+  Deduplication is explicitly enforced using a set, both when filtering initial subdomains and when saving results after `dnsx` and `httpx`, ensuring only unique entries.
 
-Integrated dnsx to resolve DNS for each subdomain and httpx to check for live HTTP services. Only live, reachable subdomains are saved to the output, improving data relevance.
-Output Display Control
+- **Live Subdomain Validation**  
+  Integrated `dnsx` to resolve DNS for each subdomain and `httpx` to check for live HTTP services. Only live, reachable subdomains are saved to the output, improving data relevance.
 
-Added a prompt at the end asking the user if they’d like to view the contents of all_subdomains.txt, allowing for optional result display.
-Code Structure & Modularity
+- **Output Display Control**  
+  Added a prompt at the end asking the user if they’d like to view the contents of `all_subdomains.txt`, allowing for optional result display.
 
-Refactored code into distinct functions, with clear function names and comments. Each major step (e.g., filtering, deduplication, saving) is broken down for easier readability and maintenance.
-Enhanced Error Handling
+- **Code Structure & Modularity**  
+  Refactored code into distinct functions, with clear function names and comments. Each major step (e.g., filtering, deduplication, saving) is broken down for easier readability and maintenance.
 
-Structured error handling provides specific error messages if a command fails or if a tool is missing, utilizing subprocess exceptions and checks for tool availability before execution.
-Dynamic Loading Indicators
+- **Enhanced Error Handling**  
+  Structured error handling provides specific error messages if a command fails or if a tool is missing, utilizing `subprocess` exceptions and checks for tool availability before execution.
 
-Implemented a loading circle to show that a tool is running, followed by a ✅ or ❌ mark at the end to indicate success or failure.
-Progress Simulation
+- **Dynamic Loading Indicators**  
+  Implemented a loading circle to show that a tool is running, followed by a `✅` or `❌` mark at the end to indicate success or failure.
 
-Realistic progress is simulated using a rotating spinner (|, /, -, \) that updates continuously until each command completes.
+- **Progress Simulation**  
+  Realistic progress is simulated using a rotating spinner (`|`, `/`, `-`, `\`) that updates continuously until each command completes.
+
 
 
     Run Subdomain Enumeration Tools:
