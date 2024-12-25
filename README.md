@@ -63,6 +63,7 @@ Ensure you have the following tools installed and accessible in your system's PA
     httpx
     Python 3.x 
 
+Note: You can install all of these tools using Kali Linux with the command sudo apt install <tool>, except for httpx.
 # Usage
 
 Clone the repository:
