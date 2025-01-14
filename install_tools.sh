@@ -28,6 +28,10 @@ sudo apt install -y findomain
 echo "Installing DNSX..."
 sudo apt install -y dnsx
 
+# Remove HTTPX if it exists
+echo "Removing existing HTTPX binary if present..."
+sudo rm -rf /usr/bin/httpx
+
 # Install HTTPX using Go
 echo "Installing HTTPX..."
 go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
@@ -35,5 +39,9 @@ go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
 # Verify installations
 echo "Verifying installations..."
 sublist3r --help && subfinder --help && assetfinder --help && findomain --help && dnsx --help && httpx --help
+
+# Remove unnecessary packages
+echo "Removing unnecessary packages..."
+sudo apt autoremove -y
 
 echo "Installation complete!"
