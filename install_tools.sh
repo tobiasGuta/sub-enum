@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Add Go binaries to the PATH in ~/.zshrc
+echo 'export PATH=$PATH:~/go/bin' >> ~/.zshrc
+
 # Update and upgrade the system
 echo "Updating system..."
 sudo apt update && sudo apt upgrade -y
@@ -44,4 +47,8 @@ sublist3r --help && subfinder --help && assetfinder --help && findomain --help &
 echo "Removing unnecessary packages..."
 sudo apt autoremove -y
 
+#Complete!
 echo "Installation complete!"
+
+# Apply changes to ~/.zshrc
+echo "please type: source ~/.zshrc"
