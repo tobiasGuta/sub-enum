@@ -5,12 +5,12 @@ We’re excited that you want to contribute to sub-enum! Please take a moment to
 ## How to Contribute
 
 ### Reporting Bugs
-If you find a bug, please create an issue in the [Issues section](https://github.com/tobiasGuta/FTPHunter/issues) and include the following details:
+If you find a bug, please create an issue in the [Issues section](https://github.com/tobiasGuta/sub-enum/issues) and include the following details:
 - **Pick One of the Templates**
 
 
 ### Requesting Features
-If you have an idea for a new feature or enhancement, please create an issue in the [Issues section](https://github.com/tobiasGuta/FTPHunter/issues). When submitting a feature request, please include:
+If you have an idea for a new feature or enhancement, please create an issue in the [Issues section](https://github.com/tobiasGuta/sub-enum/issues). When submitting a feature request, please include:
 - **A clear description of the feature**
 - **Why it’s valuable**
 - **Any additional context or mockups**
