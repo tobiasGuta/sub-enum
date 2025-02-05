@@ -106,6 +106,6 @@ sudo apt autoremove -y
 #Complete!
 echo "Installation complete!"
 
-# Apply changes to ~/.zshrc
-source ~/.bashrd
-echo "please type: source ~/.bashrc if the above command doesnt work or using the one from your linux for example kali linux"
+# Apply changes to ~/.zshrc or ~/.bashrc
+source ~/.bashrc
+echo "please type: source ~/.bashrc if the above command doesnt work or using the one from your linux for example kali linux ~/.zshrc"
