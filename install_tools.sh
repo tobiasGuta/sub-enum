@@ -43,13 +43,42 @@ echo "Installing Subfinder..."
 go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
 
 echo "Installing Assetfinder..."
-sudo apt install -y assetfinder
+go install github.com/tomnomnom/assetfinder@latest
 
 echo "Installing Findomain..."
-sudo apt install -y findomain
+
+# Install dependencies
+sudo apt update
+sudo apt install -y git curl build-essential
+
+# Install Rust (if not already installed)
+if ! command -v rustc &> /dev/null
+then
+    echo "Rust not found, installing Rust..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+    source "$HOME/.cargo/env"
+else
+    echo "Rust is already installed."
+fi
+
+# Clone the Findomain repository
+git clone https://github.com/findomain/findomain.git
+
+# Navigate to the Findomain directory
+cd findomain
+
+# Build Findomain
+cargo build --release
+
+# Copy the binary to /usr/bin
+sudo cp target/release/findomain /usr/bin/
+
+# Check if Findomain is installed
+echo "Findomain installed successfully. Verifying installation..."
+findomain
 
 echo "Installing DNSX..."
-sudo apt install -y dnsx
+go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest
 
 # Remove HTTPX if it exists
 echo "Removing existing HTTPX binary if present..."
