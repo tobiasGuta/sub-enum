@@ -9,7 +9,27 @@ sudo apt update && sudo apt upgrade -y
 
 # Install Go (Golang)
 echo "Installing Go (Golang)..."
-sudo apt install -y golang-go
+
+# Remove any previous Go installation (if it exists)
+echo "Removing previous Go installation..."
+sudo rm -rf /usr/local/go
+
+# Download the latest Go tarball (replace the version if needed)
+echo "Downloading Go..."
+wget https://go.dev/dl/go1.23.6.linux-amd64.tar.gz
+
+# Extract the tarball to /usr/local
+echo "Extracting Go..."
+sudo tar -C /usr/local -xzf go1.23.6.linux-amd64.tar.gz
+
+# Add Go to the PATH environment variable
+echo "Adding Go to PATH..."
+echo "export PATH=\$PATH:/usr/local/go/bin" >> ~/.profile
+source ~/.profile
+
+# Verify the Go installation
+echo "Verifying Go installation..."
+go version
 
 # Install common dependencies
 echo "Installing common dependencies..."
