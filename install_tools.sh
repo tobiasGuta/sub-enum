@@ -16,11 +16,11 @@ sudo rm -rf /usr/local/go
 
 # Download the latest Go tarball (replace the version if needed)
 echo "Downloading Go..."
-wget https://go.dev/dl/go1.23.6.linux-amd64.tar.gz
+wget https://go.dev/dl/go1.23.6.linux-amd64.tar.gz   # check for newest version
 
 # Extract the tarball to /usr/local
 echo "Extracting Go..."
-sudo tar -C /usr/local -xzf go1.23.6.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.23.6.linux-amd64.tar.gz  # check for newest version
 
 # Add Go to the PATH environment variable
 echo "Adding Go to PATH..."
