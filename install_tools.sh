@@ -20,7 +20,7 @@ echo "Installing Sublist3r..."
 sudo apt install -y sublist3r
 
 echo "Installing Subfinder..."
-sudo apt install -y subfinder
+go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
 
 echo "Installing Assetfinder..."
 sudo apt install -y assetfinder
