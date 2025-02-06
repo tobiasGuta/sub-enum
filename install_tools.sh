@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Add Go binaries to the PATH in ~/.zshrc
-echo 'export PATH=$PATH:~/go/bin' >> ~/.bashrc
+echo 'export PATH=$PATH:/home/shadownsa/go/bin' >> ~/.bashrc
+
 
 # Update and upgrade the system
 echo "Updating system..."
