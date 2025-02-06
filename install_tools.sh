@@ -35,10 +35,6 @@ go version
 echo "Installing common dependencies..."
 sudo apt install -y curl wget unzip python3-pip
 
-# Install Amass 
-echo "Installing Amass..."
-go install -v github.com/owasp-amass/amass/v4/...@master
-
 # Install required tools using apt
 echo "Installing Sublist3r..."
 sudo apt install -y sublist3r
