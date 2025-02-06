@@ -3,7 +3,8 @@
 
 This Python script is a comprehensive tool designed to discover and collect subdomains for a given domain. It integrates multiple subdomain enumeration tools and services to provide a consolidated list of subdomains. The script performs the following tasks:
 
-https://github.com/user-attachments/assets/d5ab6a9e-ed16-4d2e-96d1-be302520f791
+![Screenshot 2025-02-06 083336](https://github.com/user-attachments/assets/598b1b01-2321-41d3-a65e-5660904119a2)
+
 
 ### Updates
 
