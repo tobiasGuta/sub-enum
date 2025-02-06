@@ -88,13 +88,6 @@ sudo rm -rf /usr/bin/httpx
 echo "Installing HTTPX..."
 go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
 
-# moving sub-enum
-
-echo "Creating symlink for sub-enum..."
-mv ~/Desktop/sub-enum/sub.py ~/tools/
-sudo ln -sf ~/tools/sub.py /usr/local/bin/subenum
-chmod +x ~/tools/sub.py
-
 # Verify installations
 echo "Verifying installations..."
 sublist3r --help && subfinder --help && assetfinder --help && findomain --help && dnsx --help && httpx --help
