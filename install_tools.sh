@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Add Go binaries to the PATH in ~/.zshrc
-echo 'export PATH=$PATH:~/go/bin' >> ~/.zshrc
+echo 'export PATH=$PATH:~/go/bin' >> ~/.bashrc
 
 # Update and upgrade the system
 echo "Updating system..."
@@ -24,8 +24,8 @@ sudo tar -C /usr/local -xzf go1.23.6.linux-amd64.tar.gz  # check for newest vers
 
 # Add Go to the PATH environment variable
 echo "Adding Go to PATH..."
-echo "export PATH=\$PATH:/usr/local/go/bin" >> ~/.profile
-source ~/.profile
+echo "export PATH=\$PATH:/usr/local/go/bin" >> ~/.bashrc
+source ~/.bashrc
 
 # Verify the Go installation
 echo "Verifying Go installation..."
