@@ -84,6 +84,7 @@ go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest
 # Remove HTTPX if it exists
 echo "Removing existing HTTPX binary if present..."
 sudo rm -rf /usr/bin/httpx
+rm -rf ~/.local/bin/httpx
 
 # Install HTTPX using Go
 echo "Installing HTTPX..."
