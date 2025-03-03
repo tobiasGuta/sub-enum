@@ -91,7 +91,7 @@ def filter_dnsx_httpx(subdomains):
             file.write(dnsx_result.stdout)
 
         # Run httpx to check live subdomains with status codes and technology detection
-        httpx_command = ["httpx", "-title", "-status-code", "-tech-detect", "-silent", "-l", "temp_dnsx_resolved.txt"]
+        httpx_command = ["httpx", "-ip", "-cdn", "-title", "-status-code", "-tech-detect", "-silent", "-l", "temp_dnsx_resolved.txt"]
         httpx_result = subprocess.run(httpx_command, capture_output=True, text=True)
         if httpx_result.returncode != 0:
             print(f"[✗] httpx error: {httpx_result.stderr}")
