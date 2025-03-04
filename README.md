@@ -21,7 +21,7 @@ https://github.com/user-attachments/assets/3593ca35-f6d4-4625-8022-2f2475e22265
 
 
 
-    Run Subdomain Enumeration Tools:
+# Run Subdomain Enumeration Tools:
         Sublist3r
         Subfinder
         Assetfinder
@@ -30,13 +30,8 @@ https://github.com/user-attachments/assets/3593ca35-f6d4-4625-8022-2f2475e22265
         dnsx
         httpx
 
-    Combine and Deduplicate Results:
+Combine and Deduplicate Results:
         Removes duplicate entries to ensure a unique list of subdomains.
-
-# Features
-
-        Artistic ASCII Header: Displays a custom ASCII art header at the start of execution.
-        Error Handling: Includes robust error handling and reporting for each step of the process.
 
 # Prerequisites
 
