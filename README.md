@@ -18,7 +18,8 @@ https://github.com/user-attachments/assets/3593ca35-f6d4-4625-8022-2f2475e22265
 - Email
 - Microsoft Teams
 - Google Chat
-
+================================
+- sub_api.py = This version uses the ProjectDiscovery API, please set your api first.
 
 
 # Run Subdomain Enumeration Tools:
@@ -29,6 +30,7 @@ https://github.com/user-attachments/assets/3593ca35-f6d4-4625-8022-2f2475e22265
         go
         dnsx
         httpx
+
 
 Combine and Deduplicate Results:
         Removes duplicate entries to ensure a unique list of subdomains.
