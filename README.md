@@ -7,6 +7,17 @@ This Python script is a comprehensive tool designed to discover and collect subd
 
 https://github.com/user-attachments/assets/3593ca35-f6d4-4625-8022-2f2475e22265
 
+# Update
+
+💬 **Integration with Notify** – I’ve added a new feature using the awesome [Notify](https://docs.projectdiscovery.io/tools/notify/overview) tool from Project Discovery! You can now easily send your output to your favorite platforms:
+
+- Slack
+- Discord
+- Telegram
+- Pushover
+- Email
+- Microsoft Teams
+- Google Chat
 
 
 
@@ -115,8 +126,3 @@ Run the script:
     Findomain
     dnsx
     httpx
-
-# Future Updates
-
-    I am committed to continually improving this tool. Future updates will include integrations with additional subdomain discovery tools and services. Stay tuned for enhancements that will further expand        its capabilities and provide even more comprehensive results for subdomain enumeration.
-    Feel free to open issues or submit pull requests if you have suggestions for additional tools or features to include.
