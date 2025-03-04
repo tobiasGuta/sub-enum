@@ -3,34 +3,10 @@
 
 This Python script is a comprehensive tool designed to discover and collect subdomains for a given domain. It integrates multiple subdomain enumeration tools and services to provide a consolidated list of subdomains. The script performs the following tasks:
 
-![Screenshot 2025-02-06 083336](https://github.com/user-attachments/assets/598b1b01-2321-41d3-a65e-5660904119a2)
 
 
-### Updates
+https://github.com/user-attachments/assets/3593ca35-f6d4-4625-8022-2f2475e22265
 
-- **Domain Filtering**  
-  Added filtering to ensure that only subdomains of the specified target domain are saved in `all_subdomains.txt`.
-
-- **Deduplication**  
-  Deduplication is explicitly enforced using a set, both when filtering initial subdomains and when saving results after `dnsx` and `httpx`, ensuring only unique entries.
-
-- **Live Subdomain Validation**  
-  Integrated `dnsx` to resolve DNS for each subdomain and `httpx` to check for live HTTP services. Only live, reachable subdomains are saved to the output, improving data relevance.
-
-- **Output Display Control**  
-  Added a prompt at the end asking the user if they’d like to view the contents of `all_subdomains.txt`, allowing for optional result display.
-
-- **Code Structure & Modularity**  
-  Refactored code into distinct functions, with clear function names and comments. Each major step (e.g., filtering, deduplication, saving) is broken down for easier readability and maintenance.
-
-- **Enhanced Error Handling**  
-  Structured error handling provides specific error messages if a command fails or if a tool is missing, utilizing `subprocess` exceptions and checks for tool availability before execution.
-
-- **Dynamic Loading Indicators**  
-  Implemented a loading circle to show that a tool is running, followed by a `✅` or `❌` mark at the end to indicate success or failure.
-
-- **Progress Simulation**  
-  Realistic progress is simulated using a rotating spinner (`|`, `/`, `-`, `\`) that updates continuously until each command completes.
 
 
 
@@ -39,9 +15,9 @@ This Python script is a comprehensive tool designed to discover and collect subd
         Subfinder
         Assetfinder
         Findomain
-
-    Fetch Subdomains from crt.sh:
-        Uses the crt.sh service to retrieve subdomains listed in SSL certificates for the given domain.
+        go
+        dnsx
+        httpx
 
     Combine and Deduplicate Results:
         Removes duplicate entries to ensure a unique list of subdomains.
@@ -50,7 +26,6 @@ This Python script is a comprehensive tool designed to discover and collect subd
 
         Artistic ASCII Header: Displays a custom ASCII art header at the start of execution.
         Error Handling: Includes robust error handling and reporting for each step of the process.
-        User Interaction: Prompts the user to enter the domain for which subdomains need to be discovered.
 
 # Prerequisites
 
@@ -63,6 +38,7 @@ Ensure you have the following tools installed and accessible in your system's PA
     dnsx
     httpx
     Python 3.x 
+    go
 
 Note: You can install all of these tools on Kali Linux using the install_tools.sh script.
 # Usage
@@ -77,7 +53,7 @@ Navigate to the directory:
 
 Run the script:
 
-    $ python3 sub.py
+    $ python3 sub.py -d domain.com -o live-subdomains.txt
 
         
     ⠀⠀⠀⠀⠀⠀⠀⠀⠀⢶⣦⣤⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
@@ -109,11 +85,21 @@ Run the script:
     ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⠃⠀⠀⠀⠀⠀⠀⠀⠈⠻⣷⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
     ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠿⠋⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 
-     $ subenum -d example.com
+     $ subenum -d example.com -o live_subdomains.txt
+    [✓] go is installed at /usr/local/go/bin/go.
+    [✓] subfinder is installed at /home/kali/go/bin/subfinder.
+    [✓] assetfinder is installed at /home/kali/go/bin/assetfinder.
+    [✓] sublist3r is installed at /usr/local/bin/sublist3r.
+    [✓] findomain is installed at /usr/bin/findomain.
+    [✓] dnsx is installed at /home/kali/go/bin/dnsx.
+    [✓] httpx is installed at /home/kali/go/bin/httpx.
+    
+    [✓] All required tools are installed.
     [*] Discovering subdomains for example.com...
-    [✓] Saved 3076 subdomains to all_subdomains.txt
+    [✓] Saved 54 subdomains to live_subdomains.txt
     [*] Checking for live subdomains...
-    [✓] Saved 464 live subdomains to live_subdomains.txt
+    [✓] Saved 13 live subdomains to live_subdomains.txt
+
 
 # Output
 
@@ -127,7 +113,6 @@ Run the script:
     Subfinder
     Assetfinder
     Findomain
-    crt.sh
     dnsx
     httpx
 
