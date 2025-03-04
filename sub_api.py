@@ -39,8 +39,11 @@ art = '''
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠿⠋⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠁⠀⠀⠀⠀⠀⠀⠀⠀2.1⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 '''
 
-print('This Version use projectdiscovery api, please set your api using export CHAOS_KEY=CHAOS_API_KEY')
 print(art)
+print("\033[91m[⚠️ WARNING]\033[0m This version uses the ProjectDiscovery API.")
+print("\033[93m[!] Please set your API key using:\033[0m export CHAOS_KEY=YOUR_CHAOS_API_KEY")
+print("\033[93m[!] To make it persistent, add it to your ~/.bashrc or ~/.zshrc file.\033[0m")
+
 
 # Function to check if a tool is installed
 def check_tool_availability(tool):
