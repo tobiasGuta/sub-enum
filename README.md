@@ -20,7 +20,9 @@ https://github.com/user-attachments/assets/3593ca35-f6d4-4625-8022-2f2475e22265
 - Google Chat
   
 ================================
-- sub_api.py = This version uses the ProjectDiscovery API for chaos, please set your api first.
+# sub_api.py 
+
+- This version uses the ProjectDiscovery API for chaos, please set your api first.
 
 
 # Run Subdomain Enumeration Tools:
