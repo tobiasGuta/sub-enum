@@ -346,13 +346,13 @@ for tool in required_tools:
     if tool_path:
         print(f"[✓] {tool} is installed at {tool_path}.")
         
-        # Check if httpx is specifically in /usr/bin/httpx and remove it
+        # Check if httpx is specifically in /usr/bin/httpx and remove it using sudo
         if tool == "httpx" and tool_path == "/usr/bin/httpx":
-            print("[!] Removing httpx from /usr/bin/httpx...")
+            print("[!] Removing httpx from /usr/bin/httpx with sudo...")
             try:
-                os.remove("/usr/bin/httpx")
+                subprocess.run(["sudo", "rm", "-f", "/usr/bin/httpx"], check=True)
                 print("[✓] httpx has been removed.")
-            except Exception as e:
+            except subprocess.CalledProcessError as e:
                 print(f"[✗] Failed to remove httpx: {e}")
     else:
         print(f"[✗] {tool} is missing.")
