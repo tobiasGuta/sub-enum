@@ -279,8 +279,9 @@ def install_httpx():
         return
 
 # Function to check which subdomains are live using httpx
-def filter_httpx(subdomains):
+def filter_httpx(subdomains, output_file):
     try:
+        # Write the subdomains to a temporary file
         with open("temp_subdomains.txt", "w") as file:
             file.write("\n".join(subdomains))
 
@@ -289,29 +290,32 @@ def filter_httpx(subdomains):
             "httpx", "-ip", "-cdn", "-title", "-status-code", "-tech-detect", "-silent", "-l", "temp_subdomains.txt"
         ]
         httpx_result = subprocess.run(httpx_command, capture_output=True, text=True)
+        
         if httpx_result.returncode != 0:
             print(f"[✗] httpx error: {httpx_result.stderr}")
             return set()
 
         live_subdomains = set(httpx_result.stdout.strip().splitlines())
-        
-        # Extract only URLs and write to live_urls.txt
+
+        # Extract only URLs and write to the specified output file
         urls = set()
         for line in live_subdomains:
             match = re.match(r'^(https?://[^ ]+)', line)
             if match:
                 urls.add(match.group(1))
-        
-        with open("live_urls.txt", "w") as file:
+
+        # Write the live URLs to the provided output file
+        with open(output_file, "w") as file:
             file.write("\n".join(urls))
-        
+
         return live_subdomains
-    
+
     except Exception as e:
         print(f"[✗] Error in filtering live subdomains: {e}")
         return set()
-    
+
     finally:
+        # Clean up the temporary file
         os.remove("temp_subdomains.txt")
 
 # Function to run subdomain discovery tools in parallel
@@ -399,16 +403,16 @@ if "chaos" in missing_tools:
 
 # Main function with command-line argument handling
 def main():
+    # Set up argparse to handle command-line arguments
     parser = argparse.ArgumentParser(description="Automated Subdomain Discovery Tool", 
                                      formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("-d", "--domain", required=True, help="Target domain (e.g., example.com)")
     parser.add_argument("-o", "--output", default="all_subdomains.txt", help="Output file for all discovered subdomains (default: all_subdomains.txt)")
     parser.add_argument("-l", "--live-output", default="live_subdomains.txt", help="Output file for live subdomains (default: live_subdomains.txt)")
+    parser.add_argument("-u", "--output_file", required=True, help="Path to the output file to store live URLs.")
 
-    # Adding an explicit help message for the --help option
+    # Parsing the arguments
     args = parser.parse_args()
-
-
 
     if missing_tools:
         print(f"\n[!] Missing tools: {', '.join(missing_tools)}")
@@ -425,7 +429,8 @@ def main():
     print(f"[✓] Saved {len(subdomains)} subdomains to {args.output}")
 
     print("[*] Checking for live subdomains...")
-    live_subdomains = filter_httpx(subdomains)
+    # Use args.output_file instead of output_file
+    live_subdomains = filter_httpx(subdomains, args.output_file)
 
     # Save live subdomains
     with open(args.live_output, "w") as file:
