@@ -4,9 +4,10 @@ import subprocess
 import os
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+import re
 
 # List of required tools
-required_tools = ["go", "subfinder", "assetfinder", "sublist3r", "findomain", "chaos", "dnsx", "httpx"]
+required_tools = ["go", "subfinder", "assetfinder", "sublist3r", "findomain", "chaos", "httpx"]
 
 art = '''
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⢶⣦⣤⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
@@ -260,23 +261,6 @@ def install_findomain():
         print("[✗] Skipping Findomain installation.")
         return
 
-def install_dnsx():
-    print(f"\n[!] dnsx is missing.")
-    user_choice = input("[?] Do you want to install dnsx using Go? (yes/no): ").strip().lower()
-
-    if user_choice == "yes":
-        try:
-            # Install dnsx using Go
-            print("[✓] Installing dnsx...")
-            subprocess.run(["go", "install", "github.com/projectdiscovery/dnsx/cmd/dnsx@latest"], check=True)
-            print("[✓] dnsx installed successfully!")
-
-        except subprocess.CalledProcessError as e:
-            print(f"[✗] Error installing dnsx: {e}")
-    else:
-        print("[✗] Skipping dnsx installation.")
-        return
-
 def install_httpx():
     print(f"\n[!] httpx is missing.")
     user_choice = input("[?] Do you want to install httpx using Go? (yes/no): ").strip().lower()
@@ -294,38 +278,41 @@ def install_httpx():
         print("[✗] Skipping httpx installation.")
         return
 
-# Function to check which subdomains are live using dnsx and httpx
-def filter_dnsx_httpx(subdomains):
+# Function to check which subdomains are live using httpx
+def filter_httpx(subdomains):
     try:
         with open("temp_subdomains.txt", "w") as file:
             file.write("\n".join(subdomains))
 
-        # Run dnsx to resolve subdomains
-        dnsx_command = ["dnsx", "-silent", "-l", "temp_subdomains.txt"]
-        dnsx_result = subprocess.run(dnsx_command, capture_output=True, text=True)
-        if dnsx_result.returncode != 0:
-            print(f"[✗] dnsx error: {dnsx_result.stderr}")
-            return set()
-
-        with open("temp_dnsx_resolved.txt", "w") as file:
-            file.write(dnsx_result.stdout)
-
         # Run httpx to check live subdomains with status codes and technology detection
-        httpx_command = ["httpx", "-ip", "-cdn", "-title", "-status-code", "-tech-detect", "-silent", "-l", "temp_dnsx_resolved.txt"]
+        httpx_command = [
+            "httpx", "-ip", "-cdn", "-title", "-status-code", "-tech-detect", "-silent", "-l", "temp_subdomains.txt"
+        ]
         httpx_result = subprocess.run(httpx_command, capture_output=True, text=True)
         if httpx_result.returncode != 0:
             print(f"[✗] httpx error: {httpx_result.stderr}")
             return set()
 
-        return set(httpx_result.stdout.strip().splitlines())
-
+        live_subdomains = set(httpx_result.stdout.strip().splitlines())
+        
+        # Extract only URLs and write to live_urls.txt
+        urls = set()
+        for line in live_subdomains:
+            match = re.match(r'^(https?://[^ ]+)', line)
+            if match:
+                urls.add(match.group(1))
+        
+        with open("live_urls.txt", "w") as file:
+            file.write("\n".join(urls))
+        
+        return live_subdomains
+    
     except Exception as e:
         print(f"[✗] Error in filtering live subdomains: {e}")
         return set()
-
+    
     finally:
         os.remove("temp_subdomains.txt")
-        os.remove("temp_dnsx_resolved.txt")
 
 # Function to run subdomain discovery tools in parallel
 def run_subdomain_discovery(domain):
@@ -401,10 +388,6 @@ if "findomain" in missing_tools:
     install_findomain()
     missing_tools.remove("findomain")
 
-if "dnsx" in missing_tools:
-    install_dnsx()
-    missing_tools.remove("dnsx")
-
 if "httpx" in missing_tools:
     install_httpx()
     missing_tools.remove("httpx")
@@ -442,7 +425,7 @@ def main():
     print(f"[✓] Saved {len(subdomains)} subdomains to {args.output}")
 
     print("[*] Checking for live subdomains...")
-    live_subdomains = filter_dnsx_httpx(subdomains)
+    live_subdomains = filter_httpx(subdomains)
 
     # Save live subdomains
     with open(args.live_output, "w") as file:
