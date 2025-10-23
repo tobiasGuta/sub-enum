@@ -41,7 +41,7 @@ art = '''
 '''
 
 print(art)
-print("\033[91m[⚠️ WARNING]\033[0m This version uses the ProjectDiscovery API.")
+print("\033[91m[ WARNING]\033[0m This version uses the ProjectDiscovery API.")
 print("\033[93m[!] Please set your API key using:\033[0m export CHAOS_KEY=YOUR_CHAOS_API_KEY")
 print("\033[93m[!] To make it persistent, add it to your ~/.bashrc or ~/.zshrc file.\033[0m")
 
