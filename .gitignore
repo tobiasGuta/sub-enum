@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.env
+words.txt
+altdns_output.txt
+data_output
+# Ignore output directories (you might want to move outputs to a 'results' folder in the future)
+nyc.gov/
