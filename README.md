@@ -93,9 +93,11 @@ Supported keys:
 If my tool helped you land a bug bounty, consider buying me a coffee ☕️!
 
 ---
+
 <div align="center">
   <a href="https://www.buymeacoffee.com/tobiasguta">
     <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" width="200" />
   </a>
 </div>
+
 ---
