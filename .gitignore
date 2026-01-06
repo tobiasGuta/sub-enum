@@ -1,7 +1,0 @@
-__pycache__/
-*.pyc
-.env
-words.txt
-altdns_output.txt
-data_output
-
