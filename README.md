@@ -79,6 +79,12 @@ Specify where to save results:
 sub-enum -d example.com -o mysubs.txt -l live.txt
 ```
 
+<img width="1060" height="353" alt="image" src="https://github.com/user-attachments/assets/eb0b442b-fbfe-4f2b-a83b-0af737bf428d" />
+
+--------
+
+<img width="1370" height="206" alt="Screenshot 2026-01-06 005554" src="https://github.com/user-attachments/assets/f19e0090-d3ed-4351-a55b-7062a6595fa5" />
+
 ## Configuration
 
 Sub-Enum looks for a `.env` file in the current directory to load API keys.
@@ -112,6 +118,21 @@ When the tool finishes, it generates three distinct files in the output director
 *   **Purpose:** Use this for manual review/recon.
     *   *Example:* Quickly grep for `Status: 200` or `Title: Admin Panel`.
     *   *Example:* Identify `403 Forbidden` pages vs `200 OK` pages without visiting them.
+
+<img width="789" height="195" alt="Screenshot 2026-01-06 010000" src="https://github.com/user-attachments/assets/678040bf-8d60-47a0-9102-d33cc957097d" />
+
+--------
+
+<img width="670" height="154" alt="Screenshot 2026-01-06 010015" src="https://github.com/user-attachments/assets/3ab681f6-ed71-4f68-b1e5-6d762c45eca1" />
+
+--------
+
+<img width="513" height="208" alt="Screenshot 2026-01-06 010148" src="https://github.com/user-attachments/assets/4894b7e1-7301-4591-b57b-035a2fa76a03" />
+
+--------
+
+<img width="1249" height="256" alt="Screenshot 2026-01-06 010208" src="https://github.com/user-attachments/assets/63fe233e-d23b-40d0-a014-3a5b6041c7ae" />
+
 
 ## Architecture
 
