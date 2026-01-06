@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Automated Subdomain Discovery Tool (Community Edition)"
 readme = "README.md"
 authors = [
-  { name = "Tobias Guta", email = "your.email@example.com" },
+  { name = "Tobias Guta", email = "mywebservices.preorder540@passinbox.com" },
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
