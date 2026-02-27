@@ -21,7 +21,7 @@ def install_go():
     # We'll use a local go folder
     go_install_dir = os.path.join(BASE_DIR, "go")
     
-    default_version = "go1.25.5.linux-amd64.tar.gz"
+    default_version = "go1.26.0.linux-amd64.tar.gz"
     default_url = f"https://go.dev/dl/{default_version}"
 
     print(f"\n{YELLOW}[!] Go is missing. The default version to install is: {default_version}{RESET}")
