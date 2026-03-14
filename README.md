@@ -79,6 +79,78 @@ Specify where to save results:
 sub-enum -d example.com -o mysubs.txt -l live.txt
 ```
 
+### Docker & Parallel Targets (new)
+
+You can run Sub-Enum fully isolated in Docker — nothing is installed on your host unless you explicitly mount host folders. The image provided by the repository is non-root and pre-installs common tools so scans are fast and reproducible.
+
+- New CLI flags:
+    - `-L, --targets-file`: path to a file with one domain per line to scan multiple targets.
+    - `--workers N`: number of parallel target workers to run (default 1).
+    - `--yes`: non-interactive / auto-yes for installers and prompts (useful in containers and CI).
+
+Basic Docker usage:
+
+1) Build the image (one-time):
+```bash
+docker build -t sub-enum:local .
+```
+
+2) Run a single domain (ephemeral, completely isolated):
+```bash
+docker run --rm sub-enum:local -d example.com --yes
+```
+
+3) Persist only scan outputs to the host (safe):
+```bash
+mkdir -p ./scans
+docker run --rm -v "$(pwd)/scans:/app/scans" sub-enum:local -d example.com --yes
+```
+
+4) Run multiple targets from a file with 4 workers and keep results in `./scans`:
+```bash
+# create targets.txt with one domain per line
+docker run --rm -v "$(pwd)/scans:/app/scans" -v "$(pwd)/targets.txt:/app/targets.txt:ro" sub-enum:local -L /app/targets.txt --workers 4 --yes
+```
+
+5) Use a Docker volume for caching (keeps cache inside Docker, not the host filesystem):
+```bash
+docker volume create sub-enum-cache
+docker run --rm -v sub-enum-cache:/home/subenum/.sub-enum -v "$(pwd)/targets.txt:/app/targets.txt:ro" sub-enum:local -L /app/targets.txt --yes
+```
+
+6) Compose convenience (provided `docker-compose.yml`):
+```bash
+docker compose up --build
+```
+
+Notes:
+- The container image runs as a non-root user (`subenum`) for safety.
+- Avoid mounting `~/.sub-enum` to your host if you want zero host-side changes.
+- Use `--yes` when running in containers or CI to skip interactive prompts.
+
+Example targets file
+--------------------
+Create a file with one domain per line. An example `targets.example.txt` is provided in the repository. Copy it to `targets.txt` before running with Docker compose:
+
+```bash
+cp sub-enum/targets.example.txt targets.txt
+```
+
+Example scan output layout
+-------------------------
+When running a scan for `example.com` (default per-target output directory is the domain name), the tool will create a directory structure like:
+
+```
+./scans/
+└── example.com/
+    ├── all_subdomains.txt        # resolved subdomains
+    ├── live_subdomains.txt       # list of live URLs (https://...)
+    └── live_subdomains_info.txt  # raw httpx output (status, title, tech)
+```
+
+If you use the default (no explicit `-o`/`-l` paths), these files appear under the per-target directory. When using Docker mounts, mount your desired `./scans` directory and the files will be written there on the host.
+
+
 <img width="1060" height="353" alt="image" src="https://github.com/user-attachments/assets/eb0b442b-fbfe-4f2b-a83b-0af737bf428d" />
 
 --------
