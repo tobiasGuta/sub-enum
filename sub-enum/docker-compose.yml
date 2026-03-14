@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  sub-enum:
+    build: .
+    image: sub-enum:latest
+    container_name: sub-enum
+    user: "1000:1000" # runs as non-root user; adjust if needed
+    volumes:
+      - ./scans:/app/scans
+      - ./targets.txt:/app/targets.txt:ro
+      - ~/.sub-enum:/home/subenum/.sub-enum
+    environment:
+      - PIP_NO_CACHE_DIR=1
+    command: ["-L", "/app/targets.txt", "--workers", "4", "--yes"]
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+
+# Example usage notes:
+# 1. Place your targets list in ./targets.txt (one domain per line).
+# 2. Create ./scans directory to collect outputs.
+# 3. Build and run:
+#    docker compose up --build

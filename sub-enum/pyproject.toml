@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sub-enum"
+version = "0.1.0"
+description = "Automated Subdomain Discovery Tool (Community Edition)"
+readme = "README.md"
+authors = [
+  { name = "Tobias Guta", email = "mywebservices.preorder540@passinbox.com" },
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.8"
+dependencies = [
+    # No external python dependencies required for the base script logic
+    # but strictly speaking, it uses standard lib. 
+    "rich>=10.0.0",
+]
+
+[project.scripts]
+sub-enum = "sub_enum.core:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=6.0",
+  "pytest-mock",
+  "black",
+  "ruff",
+  "mypy",
+]
