@@ -9,10 +9,24 @@ services:
     volumes:
       - ./scans:/app/scans
       - ./targets.txt:/app/targets.txt:ro
-      - ~/.sub-enum:/home/subenum/.sub-enum
+      - subenum-data:/home/subenum/.sub-enum
     environment:
       - PIP_NO_CACHE_DIR=1
-    command: ["-L", "/app/targets.txt", "--workers", "4", "--yes"]
+    secrets:
+      - chaos_key
+      - chaos_api_key
+      - subfinder_api_key
+    entrypoint: ["/bin/sh", "-lc"]
+    command: >
+      for secret in /run/secrets/*; do
+        [ -f "$secret" ] || continue;
+        case "$(basename "$secret")" in
+          chaos_key) export CHAOS_KEY="$(cat "$secret")" ;;
+          chaos_api_key) export CHAOS_API_KEY="$(cat "$secret")" ;;
+          subfinder_api_key) export SUBFINDER_API_KEY="$(cat "$secret")" ;;
+        esac;
+      done;
+      exec sub-enum -L /app/targets.txt --workers 4 --yes
     restart: "no"
     deploy:
       resources:
@@ -25,3 +39,14 @@ services:
 # 2. Create ./scans directory to collect outputs.
 # 3. Build and run:
 #    docker compose up --build
+
+secrets:
+  chaos_key:
+    file: ./secrets/chaos_key.txt
+  chaos_api_key:
+    file: ./secrets/chaos_api_key.txt
+  subfinder_api_key:
+    file: ./secrets/subfinder_api_key.txt
+
+volumes:
+  subenum-data:

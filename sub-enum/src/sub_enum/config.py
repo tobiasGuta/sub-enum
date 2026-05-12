@@ -25,6 +25,6 @@ CYAN = "\033[96m"
 RESET = "\033[0m"
 
 # Tool Requirements
-REQUIRED_TOOLS_BASIC = ["go", "subfinder", "assetfinder", "findomain", "httpx", "dnsx"]
+REQUIRED_TOOLS_BASIC = ["subfinder", "assetfinder", "findomain", "httpx", "dnsx"]
 REQUIRED_TOOLS_FULL = ["chaos"]
 REQUIRED_TOOLS_PERM = ["altdns"]

@@ -4,16 +4,30 @@ import shutil
 import platform
 import stat
 import sys
-from typing import Optional
+import json
+import urllib.request
+import hashlib
+from typing import Optional, Tuple
 
 from .config import BLUE, RED, YELLOW, GREEN, RESET
-from .utils import check_tool_availability, get_auto_yes
+from .utils import check_tool_availability, get_auto_yes, get_logger
+
+
+logger = get_logger(__name__)
 
 # Define base directories for user-space installation
 HOME = os.path.expanduser("~")
 BASE_DIR = os.path.join(HOME, ".sub-enum")
 BIN_DIR = os.path.join(BASE_DIR, "bin")
 TOOLS_DIR = os.path.join(BASE_DIR, "tools")
+
+# Third-party dependency pinning for supply chain security
+# These commit hashes should be periodically updated to newer stable versions
+# To update: check https://github.com/infosec-au/altdns/commits and verify the commit
+ALTDNS_GIT_COMMIT = "d67e19d39ef3bef73acbfc9987c9c2fa8b0a9a9d"  # altdns stable commit
+ALTDNS_WORDLIST_SHA256 = "aa89a100db9609de33d67668c0b6a998cd0f4d7f5dd94e32d26fd7804162ff26"  # words.txt SHA256
+# To compute the wordlist SHA256: wget -O- https://raw.githubusercontent.com/infosec-au/altdns/master/words.txt | sha256sum
+
 
 
 def init_workspace() -> None:
@@ -25,27 +39,123 @@ def init_workspace() -> None:
     for directory in [BASE_DIR, BIN_DIR, TOOLS_DIR]:
         os.makedirs(directory, exist_ok=True)
 
+def get_latest_go_version() -> Tuple[str, Optional[str]]:
+    """Fetch the latest stable Go version and checksum from the official Go releases API.
+    
+    Returns a tuple of (filename, sha256_checksum).
+    Falls back to a known stable version with None checksum if the API call fails.
+    """
+    # Detect current platform
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+    
+    # Map Python platform names to Go platform names
+    platform_map = {
+        ("linux", "x86_64"): "linux-amd64",
+        ("linux", "aarch64"): "linux-arm64",
+        ("darwin", "x86_64"): "darwin-amd64",
+        ("darwin", "arm64"): "darwin-arm64",
+        ("windows", "amd64"): "windows-amd64",
+        ("windows", "x86_64"): "windows-amd64",
+    }
+    
+    go_platform = platform_map.get((system, machine))
+    if not go_platform:
+        # Fallback for unknown platforms
+        if system == "linux":
+            go_platform = "linux-amd64"
+        elif system == "darwin":
+            go_platform = "darwin-amd64"
+        elif system == "windows":
+            go_platform = "windows-amd64"
+        else:
+            go_platform = "linux-amd64"  # Default fallback
+    
+    try:
+        # Query the official Go releases API
+        url = "https://go.dev/dl/?mode=json"
+        with urllib.request.urlopen(url, timeout=5) as response:
+            data = json.loads(response.read().decode())
+            
+            # Find the latest stable release
+            for release in data:
+                if not release.get("unstable", False):  # Only stable releases
+                    # Find a file matching our platform
+                    for file_info in release.get("files", []):
+                        if go_platform in file_info.get("filename", ""):
+                            filename = file_info.get("filename")
+                            sha256 = file_info.get("sha256")
+                            logger.info(f"[!] Latest stable Go version: {filename}")
+                            return (filename, sha256)
+            
+            # If no suitable release found, fall back
+            raise Exception("No suitable Go release found")
+            
+    except Exception as e:
+        # Fallback to a known stable version (without checksum verification)
+        logger.warning(f"[!] Could not fetch latest Go version ({e}). Using fallback version.")
+        fallback_version = f"go1.23.4.{go_platform}.tar.gz"
+        logger.warning(f"[!] Fallback Go version: {fallback_version}")
+        return (fallback_version, None)
+
+def verify_sha256(file_path: str, expected_sha256: str) -> bool:
+    """Verify that a file's SHA256 matches the expected value."""
+    sha256_hash = hashlib.sha256()
+    try:
+        with open(file_path, "rb") as f:
+            for byte_block in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(byte_block)
+        computed_sha256 = sha256_hash.hexdigest()
+        if computed_sha256 == expected_sha256:
+            logger.success("[✓] SHA256 checksum verified.")
+            return True
+        else:
+            logger.error("[✗] SHA256 checksum mismatch!")
+            logger.error(f"    Expected: {expected_sha256}")
+            logger.error(f"    Got:      {computed_sha256}")
+            return False
+    except Exception as e:
+        logger.error(f"[✗] Error verifying checksum: {e}")
+        return False
+
+
 def install_go():
     """Install Go to the user's home directory to avoid sudo."""
     # We'll use a local go folder
     go_install_dir = os.path.join(BASE_DIR, "go")
     
-    default_version = "go1.26.0.linux-amd64.tar.gz"
+    # Get the latest stable Go version and its checksum
+    default_version, expected_sha256 = get_latest_go_version()
     default_url = f"https://go.dev/dl/{default_version}"
 
-    print(f"\n{YELLOW}[!] Go is missing. The default version to install is: {default_version}{RESET}")
-    user_choice = "yes" if get_auto_yes() else input(f"{BLUE}[?] Do you want to install this version locally to {go_install_dir}? (yes/no): {RESET}").strip().lower()
+    logger.warning(f"[!] Go is missing. The default version to install is: {default_version}")
+    if get_auto_yes():
+        user_choice = "yes"
+    else:
+        logger.info(f"[?] Do you want to install this version locally to {go_install_dir}? (yes/no):")
+        user_choice = input().strip().lower()
 
     if user_choice != "yes":
-        print(f"{RED}[✗] Skipping Go installation.{RESET}")
+        logger.error("[✗] Skipping Go installation.")
         return
 
-    print(f"{YELLOW}[!] Installing Go version: {default_version}{RESET}")
+    logger.warning(f"[!] Installing Go version: {default_version}")
 
     try:
         # Download
         subprocess.run(["wget", default_url, "-O", "go_tar.gz"], check=True)
-        print(f"{GREEN}[✓] Go downloaded.{RESET}")
+        logger.success("[✓] Go downloaded.")
+
+        # Verify checksum if available
+        if expected_sha256:
+            logger.warning("[!] Verifying checksum...")
+            if not verify_sha256("go_tar.gz", expected_sha256):
+                logger.error("[✗] Checksum verification failed. Aborting installation to prevent running malicious code.")
+                if os.path.exists("go_tar.gz"):
+                    os.remove("go_tar.gz")
+                return
+        else:
+            logger.warning("[!] WARNING: Could not verify checksum (API unavailable). Proceeding without verification.")
 
         # Extract to local dir
         if os.path.exists(go_install_dir):
@@ -53,7 +163,7 @@ def install_go():
         
         # Make parent dir if needed (it is BASE_DIR)
         subprocess.run(["tar", "-C", BASE_DIR, "-xzf", "go_tar.gz"], check=True)
-        print(f"{GREEN}[✓] Go extracted to {go_install_dir}.{RESET}")
+        logger.success(f"[✓] Go extracted to {go_install_dir}.")
 
         if os.path.exists("go_tar.gz"):
             os.remove("go_tar.gz")
@@ -63,17 +173,17 @@ def install_go():
         os.environ["PATH"] = f"{go_bin}:{os.environ['PATH']}"
         os.environ["GOROOT"] = go_install_dir
         
-        print(f"{GREEN}[✓] Go installed locally.{RESET}")
-        print(f"{YELLOW}Add this to your shell config to make it permanent:{RESET}")
-        print(f'export PATH=$PATH:{go_bin}')
-        print(f'export GOROOT={go_install_dir}')
+        logger.success("[✓] Go installed locally.")
+        logger.warning("Add this to your shell config to make it permanent:")
+        logger.info(f'export PATH=$PATH:{go_bin}')
+        logger.info(f'export GOROOT={go_install_dir}')
         
     except Exception as e:
-        print(f"{RED}[✗] Failed to install Go: {e}{RESET}")
+        logger.error(f"[✗] Failed to install Go: {e}")
 
 def install_tool_go(tool_name, package_path):
     """Generic function to install Go tools."""
-    print(f"\n{YELLOW}[!] {tool_name} is missing.{RESET}")
+    logger.warning(f"[!] {tool_name} is missing.")
     
     # Check if we have go (system or local)
     if not shutil.which("go"):
@@ -83,40 +193,54 @@ def install_tool_go(tool_name, package_path):
              # Update env if not already picked up
              os.environ["PATH"] = f"{os.path.dirname(local_go)}:{os.environ['PATH']}"
         else:
-            print(f"{RED}[✗] Go is not installed. Please install Go first.{RESET}")
+            logger.error("[✗] Go is not installed. Please install Go first.")
             return
-    user_choice = "yes" if get_auto_yes() else input(f"{BLUE}[?] Do you want to install {tool_name} using Go? (yes/no): {RESET}").strip().lower()
+    if get_auto_yes():
+        user_choice = "yes"
+    else:
+        logger.info(f"[?] Do you want to install {tool_name} using Go? (yes/no):")
+        user_choice = input().strip().lower()
     if user_choice == "yes":
         try:
-            print(f"{GREEN}[✓] Installing {tool_name}...{RESET}")
+            logger.success(f"[✓] Installing {tool_name}...")
             # This installs to $GOBIN or $HOME/go/bin usually, which is fine as it is user space.
             subprocess.run(["go", "install", f"{package_path}@latest"], check=True)
-            print(f"{GREEN}[✓] {tool_name} installed successfully!{RESET}")
+            logger.success(f"[✓] {tool_name} installed successfully!")
         except subprocess.CalledProcessError as e:
-            print(f"{RED}[✗] Error installing {tool_name}: {e}{RESET}")
+            logger.error(f"[✗] Error installing {tool_name}: {e}")
     else:
-        print(f"{RED}[✗] Skipping {tool_name} installation.{RESET}")
+        logger.error(f"[✗] Skipping {tool_name} installation.")
 
 def install_findomain():
     """Install Findomain using apt (requires sudo)."""
-    print(f"\n{YELLOW}[!] Findomain is missing.{RESET}")
-    user_choice = "yes" if get_auto_yes() else input(f"{BLUE}[?] Do you want to install Findomain using apt? (yes/no): {RESET}").strip().lower()
+    logger.warning("[!] Findomain is missing.")
+    if get_auto_yes():
+        user_choice = "yes"
+    else:
+        logger.info("[?] Do you want to install Findomain using apt? (yes/no):")
+        user_choice = input().strip().lower()
 
     if user_choice == "yes":
-        print(f"{GREEN}[✓] Findomain installation requires sudo; this package will not run sudo automatically.{RESET}")
-        print(f"{YELLOW}Please run: sudo apt update && sudo apt install -y findomain{RESET}")
+        logger.success("[✓] Findomain installation requires sudo; this package will not run sudo automatically.")
+        logger.warning("Please run: sudo apt update && sudo apt install -y findomain")
     else:
-        print(f"{RED}[✗] Skipping Findomain installation.{RESET}")
+        logger.error("[✗] Skipping Findomain installation.")
 
 def install_altdns():
-    print(f"\n{YELLOW}[!] altdns is missing.{RESET}")
-    user_choice = "yes" if get_auto_yes() else input(f"{BLUE}[?] Do you want to install altdns using pip? (yes/no): {RESET}").strip().lower()
+    logger.warning("[!] altdns is missing.")
+    if get_auto_yes():
+        user_choice = "yes"
+    else:
+        logger.info("[?] Do you want to install altdns using pip? (yes/no):")
+        user_choice = input().strip().lower()
     if user_choice == "yes":
         try:
-            print(f"{GREEN}[✓] Installing altdns...{RESET}")
-            subprocess.run([sys.executable, "-m", "pip", "install", "git+https://github.com/infosec-au/altdns.git"], check=True)
-            print(f"{GREEN}[✓] altdns installed successfully!{RESET}")
+            logger.success("[✓] Installing altdns...")
+            # Pin to specific commit hash for supply chain security
+            altdns_url = f"git+https://github.com/infosec-au/altdns.git@{ALTDNS_GIT_COMMIT}"
+            subprocess.run([sys.executable, "-m", "pip", "install", altdns_url], check=True)
+            logger.success("[✓] altdns installed successfully!")
         except subprocess.CalledProcessError as e:
-            print(f"{RED}[✗] Error installing altdns: {e}{RESET}")
+            logger.error(f"[✗] Error installing altdns: {e}")
     else:
-        print(f"{RED}[✗] Skipping altdns installation.{RESET}")
+        logger.error("[✗] Skipping altdns installation.")

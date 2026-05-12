@@ -17,8 +17,7 @@ classifiers = [
 ]
 requires-python = ">=3.8"
 dependencies = [
-    # No external python dependencies required for the base script logic
-    # but strictly speaking, it uses standard lib. 
+  # Runtime dependency used for terminal output formatting.
     "rich>=10.0.0",
 ]
 
@@ -29,6 +28,10 @@ sub-enum = "sub_enum.core:main"
 where = ["src"]
 
 [project.optional-dependencies]
+permutations = [
+  "altdns>=1.0.0",
+]
+
 dev = [
   "pytest>=6.0",
   "pytest-mock",

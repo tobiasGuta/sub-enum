@@ -3,7 +3,10 @@ import os
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 import subprocess
-from typing import Set
+from typing import Optional, Set
+
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
 from .config import (
     ART, REQUIRED_TOOLS_BASIC, REQUIRED_TOOLS_FULL, REQUIRED_TOOLS_PERM,
@@ -11,13 +14,36 @@ from .config import (
 )
 from .utils import (
     load_env, validate_domain, check_tool_availability,
-    ensure_path_context, remove_conflicting_httpx, set_auto_yes
+    ensure_path_context, remove_conflicting_httpx, set_auto_yes,
+    configure_logging, get_logger
 )
 from .installers import (
     install_go, install_tool_go, install_findomain,
     install_altdns, init_workspace
 )
 from .tools import run_tool, run_dnsx, run_altdns, filter_httpx
+
+
+logger = get_logger(__name__)
+
+
+def _resolve_safe_output_path(base_dir: str, requested_path: str, label: str) -> Optional[str]:
+    """Resolve an output path and reject paths that escape the target directory."""
+    if os.path.isabs(requested_path):
+        candidate = os.path.realpath(requested_path)
+    else:
+        candidate = os.path.realpath(os.path.join(base_dir, requested_path))
+
+    base_real = os.path.realpath(base_dir)
+    try:
+        if os.path.commonpath([candidate, base_real]) != base_real:
+            logger.error(f"[✗] Refusing unsafe {label} path outside {base_dir}: {requested_path}")
+            return None
+    except ValueError:
+        logger.error(f"[✗] Refusing unsafe {label} path: {requested_path}")
+        return None
+
+    return candidate
 
 def main():
     parser = argparse.ArgumentParser(description="Automated Subdomain Discovery Tool (Community Edition)", 
@@ -35,7 +61,8 @@ def main():
     
     args = parser.parse_args()
 
-    print(ART)
+    configure_logging()
+    logger.info(ART, extra={"raw": True})
     
     load_env(args.config)
     set_auto_yes(args.yes)
@@ -49,7 +76,7 @@ def main():
         targets.append(args.domain)
     if args.targets_file:
         if not os.path.exists(args.targets_file):
-            print(f"{RED}[✗] Targets file not found: {args.targets_file}{RESET}")
+            logger.error(f"[✗] Targets file not found: {args.targets_file}")
             return
         with open(args.targets_file, "r") as f:
             for line in f:
@@ -58,7 +85,7 @@ def main():
                     targets.append(line)
 
     if not targets:
-        print(f"{RED}[✗] No target specified. Use -d or -L.{RESET}")
+        logger.error("[✗] No target specified. Use -d or -L.")
         return
 
     # Validate and normalize targets
@@ -66,12 +93,12 @@ def main():
     for t in targets:
         domain = validate_domain(t)
         if not domain:
-            print(f"{YELLOW}[!] Skipping invalid domain: {t}{RESET}")
+            logger.warning(f"[!] Skipping invalid domain: {t}")
             continue
         clean_targets.append(domain)
 
     if not clean_targets:
-        print(f"{RED}[✗] No valid targets to process.{RESET}")
+        logger.error("[✗] No valid targets to process.")
         return
 
     # We'll run each target in its own workspace directory. The per-target run
@@ -82,20 +109,18 @@ def main():
         if not os.path.exists(output_dir):
             try:
                 os.makedirs(output_dir)
-                print(f"{BLUE}[*] Created output directory: {output_dir}{RESET}")
+                logger.info(f"[*] Created output directory: {output_dir}")
             except OSError as e:
-                print(f"{RED}[✗] Failed to create directory {output_dir}: {e}{RESET}")
+                logger.error(f"[✗] Failed to create directory {output_dir}: {e}")
                 return
 
-        if os.path.dirname(args.output):
-            output_file = args.output
-        else:
-            output_file = os.path.join(output_dir, args.output)
+        output_file = _resolve_safe_output_path(output_dir, args.output, "output")
+        if not output_file:
+            return
 
-        if os.path.dirname(args.live_output):
-            live_output_file = args.live_output
-        else:
-            live_output_file = os.path.join(output_dir, args.live_output)
+        live_output_file = _resolve_safe_output_path(output_dir, args.live_output, "live output")
+        if not live_output_file:
+            return
 
         info_output_file = os.path.join(output_dir, "live_subdomains_info.txt")
 
@@ -103,7 +128,7 @@ def main():
         tools_to_check = REQUIRED_TOOLS_BASIC.copy()
         if args.full:
             tools_to_check.extend(REQUIRED_TOOLS_FULL)
-            print(f"{RED}[ WARNING] Full mode enabled. Ensure API keys are set for Chaos.{RESET}")
+            logger.warning("[ WARNING] Full mode enabled. Ensure API keys are set for Chaos.")
         if args.permutations:
             tools_to_check.extend(REQUIRED_TOOLS_PERM)
 
@@ -115,20 +140,21 @@ def main():
         if "httpx" not in missing_tools:
             try:
                 subprocess.run(["httpx", "-version"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except:
-                print(f"{YELLOW}[!] Detected incorrect httpx version (likely python-httpx).{RESET}")
+            except Exception:
+                logger.warning("[!] Detected incorrect httpx version (likely python-httpx).")
                 remove_conflicting_httpx()
                 if not check_tool_availability("httpx"):
                     missing_tools.append("httpx")
 
         # Attempt installs only if needed; installers will respect auto-yes
         if missing_tools:
-            print(f"{YELLOW}[!] Missing tools: {', '.join(missing_tools)}{RESET}")
-            if "go" in missing_tools:
+            logger.warning(f"[!] Missing tools: {', '.join(missing_tools)}")
+            go_based_tools = {"assetfinder", "subfinder", "httpx", "dnsx", "chaos"}
+            if any(tool in missing_tools for tool in go_based_tools) and not check_tool_availability("go"):
                 install_go()
                 ensure_path_context()
                 if not check_tool_availability("go"):
-                    print(f"{RED}[✗] Go is still missing. Cannot proceed with Go-based tools.{RESET}")
+                    logger.error("[✗] Go is still missing. Cannot proceed with Go-based tools.")
                     return
 
             if "assetfinder" in missing_tools:
@@ -155,12 +181,8 @@ def main():
         if args.full:
             commands["Chaos"] = ["chaos", "-d", domain]
 
-        # Console and discovery
-        from rich.console import Console
-        from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
-
         console = Console()
-        console.print(f"[bold blue][*] Discovering subdomains for {domain}...[/bold blue]")
+        logger.info(f"[*] Discovering subdomains for {domain}...")
 
         all_subdomains = set()
 
@@ -174,7 +196,7 @@ def main():
         ) as progress:
             task = progress.add_task("[cyan]Running discovery tools...", total=len(commands))
 
-            with ThreadPoolExecutor() as executor:
+            with ThreadPoolExecutor(max_workers=len(commands)) as executor:
                 future_to_tool = {executor.submit(run_tool, cmd, name, args.timeout): name for name, cmd in commands.items()}
 
                 for future in concurrent.futures.as_completed(future_to_tool):
@@ -182,37 +204,42 @@ def main():
                     progress.advance(task)
                     try:
                         results = future.result()
-                        console.print(f"[green][+] {tool_name} found {len(results)} subdomains[/green]")
+                        logger.success(f"[+] {tool_name} found {len(results)} subdomains")
                         all_subdomains.update(results)
                     except Exception as exc:
-                        console.print(f"[red][✗] {tool_name} generated an exception: {exc}[/red]")
+                        logger.error(f"[✗] {tool_name} generated an exception: {exc}")
 
-        console.print(f"[bold blue][*] Verifying subdomains with dnsx...[/bold blue]")
+        logger.info("[*] Verifying subdomains with dnsx...")
 
         with console.status("[bold green]Running dnsx resolution...") as status:
-            resolved_subdomains = run_dnsx(all_subdomains)
+            resolved_subdomains = run_dnsx(all_subdomains, args.timeout)
 
         if args.permutations:
             with console.status("[bold green]Running altdns permutations...") as status:
-                perm_subdomains = run_altdns(domain, resolved_subdomains, args.timeout)
+                perm_subdomains = run_altdns(domain, resolved_subdomains, output_dir, args.timeout)
                 resolved_subdomains.update(perm_subdomains)
 
         with open(output_file, "w") as file:
             file.write("\n".join(sorted(resolved_subdomains)) + "\n")
-        print(f"{GREEN}[✓] Saved {len(resolved_subdomains)} resolved subdomains to {output_file}{RESET}")
+        logger.success(f"[✓] Saved {len(resolved_subdomains)} resolved subdomains to {output_file}")
 
         live_urls = filter_httpx(resolved_subdomains, live_output_file, info_output_file, args.timeout)
-        print(f"{GREEN}[✓] Saved {len(live_urls)} live subdomains to {live_output_file}{RESET}")
+        logger.success(f"[✓] Saved {len(live_urls)} live subdomains to {live_output_file}")
 
     # Run targets with workers
     workers = max(1, args.workers)
+    if len(clean_targets) == 1 and workers > 1:
+        logger.warning(f"[!] Single target supplied; ignoring --workers={workers} and running sequentially.")
     if len(clean_targets) == 1 or workers == 1:
         for t in clean_targets:
             run_for_target(t)
     else:
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = [pool.submit(run_for_target, t) for t in clean_targets]
-            for future in concurrent.futures.as_completed(futures):
-                # Any exceptions will be raised here
-                _ = future.result()
+            future_to_target = {pool.submit(run_for_target, t): t for t in clean_targets}
+            for future in concurrent.futures.as_completed(future_to_target):
+                target = future_to_target[future]
+                try:
+                    _ = future.result()
+                except Exception as e:
+                    logger.error(f"[✗] Error processing target {target}: {e}")
     # end of main
