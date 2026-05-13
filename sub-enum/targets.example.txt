@@ -1,3 +1,0 @@
-example.com
-sub.example.com
-test.example.org

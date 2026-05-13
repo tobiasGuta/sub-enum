@@ -5,28 +5,20 @@ services:
     build: .
     image: sub-enum:latest
     container_name: sub-enum
-    user: "1000:1000" # runs as non-root user; adjust if needed
     volumes:
       - ./scans:/app/scans
+      - ./entrypoint.sh:/usr/local/bin/sub-enum-entrypoint.sh:ro
       - ./targets.txt:/app/targets.txt:ro
-      - subenum-data:/home/subenum/.sub-enum
+      - ./subenum-data:/home/subenum/.sub-enum
     environment:
       - PIP_NO_CACHE_DIR=1
     secrets:
       - chaos_key
       - chaos_api_key
       - subfinder_api_key
-    entrypoint: ["/bin/sh", "-lc"]
-    command: >
-      for secret in /run/secrets/*; do
-        [ -f "$secret" ] || continue;
-        case "$(basename "$secret")" in
-          chaos_key) export CHAOS_KEY="$(cat "$secret")" ;;
-          chaos_api_key) export CHAOS_API_KEY="$(cat "$secret")" ;;
-          subfinder_api_key) export SUBFINDER_API_KEY="$(cat "$secret")" ;;
-        esac;
-      done;
-      exec sub-enum -L /app/targets.txt --workers 4 --yes
+    working_dir: /app/scans
+    entrypoint: ["/bin/sh", "-c", "/usr/local/bin/sub-enum-entrypoint.sh"]
+    command: []
     restart: "no"
     deploy:
       resources:
