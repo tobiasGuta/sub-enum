@@ -20,7 +20,7 @@ PINNED_GO_TOOLS = {
     "subfinder": ("github.com/projectdiscovery/subfinder/v2/cmd/subfinder", "v2.14.0"),
     "dnsx": ("github.com/projectdiscovery/dnsx/cmd/dnsx", "v1.3.0"),
     "httpx": ("github.com/projectdiscovery/httpx/cmd/httpx", "v1.10.0"),
-    "alterx": ("github.com/projectdiscovery/alterx/cmd/alterx", "v0.1.0"),
+    "alterx": ("github.com/projectdiscovery/alterx/cmd/alterx", "v0.0.6"),
     "puredns": ("github.com/d3mondev/puredns/v2", "v2.1.1"),
     "assetfinder": ("github.com/tomnomnom/assetfinder", "4e95d8701aae8cff1c27af2626eb22ba110ad583"),
 }
