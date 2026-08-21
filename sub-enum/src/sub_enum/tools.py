@@ -1,238 +1,409 @@
-import subprocess
+from __future__ import annotations
+
+import json
 import os
-import tempfile
-import shutil
 import re
-import hashlib
-from typing import Iterable, Set, Tuple, List
+import shutil
+import subprocess
+import tempfile
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
-from .config import BLUE, RED, YELLOW, GREEN, RESET
-from .installers import ALTDNS_WORDLIST_SHA256
-from .utils import validate_domain, get_logger
-
+from .utils import get_logger, normalize_candidate, write_lines
 
 logger = get_logger(__name__)
 
-def run_tool(command: Iterable[str], tool_name: str, timeout: int = None) -> Set[str]:
-    """Run a subprocess command and return stdout lines as a set.
 
-    Captures stderr for better diagnostics but returns stdout lines. Timeouts and
-    errors are logged to stderr and produce an empty set.
-    """
+@dataclass
+class ToolRun:
+    name: str
+    command: List[str]
+    success: bool
+    duration_seconds: float
+    returncode: Optional[int] = None
+    stderr: str = ""
+    error: Optional[str] = None
+    observations: int = 0
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+def run_command(command: Sequence[str], name: str, timeout: Optional[int] = None) -> Tuple[ToolRun, str]:
+    started = time.monotonic()
     try:
-        result = subprocess.run(list(command), capture_output=True, text=True, timeout=timeout)
-        output_lines = result.stdout.strip().splitlines() if result.stdout else []
-        if result.returncode != 0 and result.stderr:
-            # Log stderr to the console for visibility
-            logger.warning(f"[!] {tool_name} stderr: {result.stderr.strip()}")
-        return set(output_lines)
-    except subprocess.TimeoutExpired:
-        logger.error(f"[✗] {tool_name} timed out after {timeout} seconds.")
-    except Exception as e:
-        logger.error(f"[✗] Exception running {tool_name}: {e}")
-    return set()
+        proc = subprocess.run(
+            list(command),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+        run = ToolRun(
+            name=name,
+            command=list(command),
+            success=proc.returncode == 0,
+            duration_seconds=time.monotonic() - started,
+            returncode=proc.returncode,
+            stderr=(proc.stderr or "").strip(),
+        )
+        if proc.returncode != 0:
+            run.error = f"exit code {proc.returncode}"
+        return run, proc.stdout or ""
+    except subprocess.TimeoutExpired as exc:
+        return (
+            ToolRun(
+                name=name,
+                command=list(command),
+                success=False,
+                duration_seconds=time.monotonic() - started,
+                error=f"timed out after {timeout} seconds",
+                stderr=(exc.stderr or "") if isinstance(exc.stderr, str) else "",
+            ),
+            "",
+        )
+    except Exception as exc:  # pragma: no cover - defensive subprocess boundary
+        return (
+            ToolRun(
+                name=name,
+                command=list(command),
+                success=False,
+                duration_seconds=time.monotonic() - started,
+                error=str(exc),
+            ),
+            "",
+        )
 
-def run_dnsx(subdomains, timeout=None):
-    """Resolve subdomains using dnsx."""
-    if not subdomains:
-        return set()
-    
-    # Silenced start message
-    temp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(mode='w+', delete=False) as temp:
-            temp.write("\n".join(subdomains))
-            temp_path = temp.name
 
-        command_simple = ["dnsx", "-l", temp_path, "-silent"]
+def _parse_json_lines(raw: str) -> Iterable[Dict[str, Any]]:
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
         try:
-            result_simple = subprocess.run(command_simple, capture_output=True, text=True, timeout=timeout)
-        except subprocess.TimeoutExpired:
-            logger.error(f"[✗] dnsx timed out after {timeout} seconds.")
-            return set()
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            yield value
 
-        resolved_lines = result_simple.stdout.strip().splitlines() if result_simple.stdout else []
-        resolved = set(resolved_lines)
-        # Silenced completion message
-        return resolved
-        
-    except Exception as e:
-        logger.error(f"[✗] Error running dnsx: {e}")
-        return set()
+
+def run_subfinder(domain: str, timeout: int, all_sources: bool = False) -> Tuple[Dict[str, Set[str]], ToolRun]:
+    command = ["subfinder", "-d", domain, "-json", "-collect-sources", "-disable-update-check"]
+    if all_sources:
+        command.append("-all")
+    run, stdout = run_command(command, "subfinder", timeout)
+    observations: Dict[str, Set[str]] = {}
+
+    for item in _parse_json_lines(stdout):
+        host = item.get("host") or item.get("input") or item.get("domain")
+        normalized = normalize_candidate(str(host or ""), domain)
+        if not normalized:
+            continue
+        sources: Set[str] = set()
+        raw_sources = item.get("sources")
+        if isinstance(raw_sources, list):
+            sources.update(str(source) for source in raw_sources if source)
+        source = item.get("source")
+        if source:
+            sources.add(str(source))
+        if not sources:
+            sources.add("subfinder")
+        observations.setdefault(normalized, set()).update(f"subfinder:{source}" for source in sources)
+
+    if run.success and not observations:
+        for line in stdout.splitlines():
+            normalized = normalize_candidate(line, domain)
+            if normalized:
+                observations.setdefault(normalized, set()).add("subfinder")
+
+    run.observations = len(observations)
+    return observations, run
+
+
+def run_findomain(domain: str, timeout: int) -> Tuple[Dict[str, Set[str]], ToolRun]:
+    run, stdout = run_command(["findomain", "-t", domain], "findomain", timeout)
+    observations: Dict[str, Set[str]] = {}
+    for line in stdout.splitlines():
+        normalized = normalize_candidate(line, domain)
+        if normalized:
+            observations.setdefault(normalized, set()).add("findomain")
+    run.observations = len(observations)
+    return observations, run
+
+
+def run_assetfinder(domain: str, timeout: int) -> Tuple[Dict[str, Set[str]], ToolRun]:
+    run, stdout = run_command(["assetfinder", "--subs-only", domain], "assetfinder", timeout)
+    observations: Dict[str, Set[str]] = {}
+    for line in stdout.splitlines():
+        normalized = normalize_candidate(line, domain)
+        if normalized:
+            observations.setdefault(normalized, set()).add("assetfinder")
+    run.observations = len(observations)
+    return observations, run
+
+
+def _dns_values(item: Dict[str, Any], key: str) -> List[str]:
+    value = item.get(key)
+    if value is None:
+        value = item.get(key.upper())
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return sorted({str(entry).rstrip(".") for entry in value if entry})
+    if isinstance(value, str):
+        return [value.rstrip(".")]
+    return [str(value)]
+
+
+def _merge_dns_json(raw: str, domain: str, records: Dict[str, Dict[str, Any]], query_key: str) -> None:
+    for item in _parse_json_lines(raw):
+        host = item.get("host") or item.get("input") or item.get("name")
+        normalized = normalize_candidate(str(host or ""), domain)
+        if not normalized:
+            continue
+        evidence = records.setdefault(normalized, {})
+        values = _dns_values(item, query_key)
+        if values:
+            evidence[query_key] = values
+        if item.get("cdn"):
+            evidence["cdn"] = item.get("cdn")
+        if item.get("asn"):
+            evidence["asn"] = item.get("asn")
+        if item.get("rcode") or item.get("status_code"):
+            evidence["rcode"] = item.get("rcode") or item.get("status_code")
+        if item.get("wildcard") is not None:
+            evidence["wildcard"] = bool(item.get("wildcard"))
+
+
+def _run_dns_query(
+    input_file: str,
+    domain: str,
+    query_key: str,
+    timeout: int,
+    rate_limit: Optional[int],
+    auto_wildcard: bool,
+) -> Tuple[ToolRun, str]:
+    command = ["dnsx", "-l", input_file, "-silent", "-json", "-omit-raw", "-disable-update-check"]
+    if query_key != "a":
+        command.append(f"-{query_key}")
+    if rate_limit and rate_limit > 0:
+        command.extend(["-rate-limit", str(rate_limit)])
+    if auto_wildcard and query_key == "a":
+        command.append("-auto-wildcard")
+    run, stdout = run_command(command, f"dnsx:{query_key}", timeout)
+
+    if auto_wildcard and query_key == "a" and not run.success and "auto-wildcard" in (run.stderr + (run.error or "")):
+        fallback = [
+            "dnsx", "-l", input_file, "-silent", "-json", "-omit-raw",
+            "-disable-update-check", "-wildcard-domain", domain,
+        ]
+        if rate_limit and rate_limit > 0:
+            fallback.extend(["-rate-limit", str(rate_limit)])
+        run, stdout = run_command(fallback, "dnsx:a:wildcard", timeout)
+        run.metadata["wildcard_mode"] = "wildcard-domain"
+    elif auto_wildcard and query_key == "a":
+        run.metadata["wildcard_mode"] = "auto-wildcard"
+    return run, stdout
+
+
+def run_dnsx(
+    domain: str,
+    hosts: Iterable[str],
+    timeout: int,
+    rate_limit: Optional[int] = None,
+) -> Tuple[Dict[str, Dict[str, Any]], List[ToolRun]]:
+    candidates = sorted(set(hosts))
+    if not candidates:
+        return {}, []
+
+    records: Dict[str, Dict[str, Any]] = {}
+    runs: List[ToolRun] = []
+    temp_path: Optional[str] = None
+    try:
+        with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as handle:
+            handle.write("\n".join(candidates) + "\n")
+            temp_path = handle.name
+
+        for key in ("a", "aaaa", "cname"):
+            run, stdout = _run_dns_query(
+                temp_path,
+                domain,
+                key,
+                timeout,
+                rate_limit,
+                auto_wildcard=(key == "a"),
+            )
+            runs.append(run)
+            if run.success:
+                _merge_dns_json(stdout, domain, records, key)
+
+        for hostname, evidence in records.items():
+            evidence["validated"] = bool(evidence.get("a") or evidence.get("aaaa") or evidence.get("cname"))
+        return records, runs
     finally:
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
 
-def run_altdns(domain, subdomains, output_dir, timeout=None):
-    """Generate permutations using altdns."""
-    if not subdomains:
-        return set()
-    
-    # Silenced start message
 
-    temp_workspace = None
+def run_alterx(domain: str, hosts: Iterable[str], timeout: int, limit: int = 5000) -> Tuple[Set[str], ToolRun]:
+    candidates = sorted(set(hosts))
+    if not candidates:
+        return set(), ToolRun("alterx", [], True, 0.0, observations=0)
+    temp_path: Optional[str] = None
     try:
-        temp_workspace = tempfile.mkdtemp(prefix="altdns_", dir=output_dir)
-
-        wordlist_path = os.path.join(temp_workspace, "words.txt")
-        # Allow this print as it indicates a download action, good for user to know why it's pausing
-        logger.warning("[!] words.txt not found. Downloading default wordlist...")
-        try:
-            subprocess.run(["wget", "https://raw.githubusercontent.com/infosec-au/altdns/master/words.txt", "-O", wordlist_path], check=True)
-
-            # Verify checksum for supply chain security
-            logger.warning("[!] Verifying wordlist integrity...")
-            sha256_hash = hashlib.sha256()
-            try:
-                with open(wordlist_path, "rb") as f:
-                    for byte_block in iter(lambda: f.read(4096), b""):
-                        sha256_hash.update(byte_block)
-                computed_sha256 = sha256_hash.hexdigest()
-                if computed_sha256 == ALTDNS_WORDLIST_SHA256:
-                    logger.success("[✓] Wordlist integrity verified.")
-                else:
-                    logger.error("[✗] Wordlist SHA256 mismatch! Possible supply chain attack.")
-                    logger.error(f"    Expected: {ALTDNS_WORDLIST_SHA256}")
-                    logger.error(f"    Got:      {computed_sha256}")
-                    logger.error("[✗] Aborting to prevent using potentially tampered wordlist.")
-                    return set()
-            except Exception as e:
-                logger.error(f"[✗] Error verifying wordlist: {e}")
-                return set()
-
-        except Exception:
-            logger.error("[✗] Failed to download wordlist. Skipping permutations.")
-            return set()
-
-        temp_subs_path = os.path.join(temp_workspace, "input.txt")
-        with open(temp_subs_path, "w") as temp_subs:
-            temp_subs.write("\n".join(subdomains))
-
-        output_perms = os.path.join(temp_workspace, "altdns_output.txt")
-        data_output_path = os.path.join(temp_workspace, "data_output")
-        
-        command = ["altdns", "-i", temp_subs_path, "-o", data_output_path, "-w", wordlist_path, "-r", "-s", output_perms]
-        
-        try:
-            subprocess.run(command, capture_output=True, text=True, timeout=timeout)
-        except subprocess.TimeoutExpired:
-            logger.warning(f"[!] altdns timed out after {timeout} seconds. Checking for partial results...")
-
-        perms = set()
-        if os.path.exists(output_perms):
-            with open(output_perms, "r") as f:
-                for line in f:
-                    candidate = line.strip().split(":", 1)[0].strip()
-                    if validate_domain(candidate):
-                        perms.add(candidate)
-            
-        # Silenced completion message
-        return perms
-
-    except Exception as e:
-        logger.error(f"[✗] Error running altdns: {e}")
-        return set()
+        with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as handle:
+            handle.write("\n".join(candidates) + "\n")
+            temp_path = handle.name
+        command = ["alterx", "-l", temp_path, "-enrich", "-silent", "-disable-update-check"]
+        if limit > 0:
+            command.extend(["-limit", str(limit)])
+        run, stdout = run_command(command, "alterx", timeout)
+        generated = {
+            normalized
+            for line in stdout.splitlines()
+            if (normalized := normalize_candidate(line, domain)) is not None
+        }
+        generated.difference_update(candidates)
+        run.observations = len(generated)
+        return generated, run
     finally:
-        if temp_workspace and os.path.exists(temp_workspace):
-            shutil.rmtree(temp_workspace)
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
 
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
-from itertools import islice
 
-def chunked_iterable(iterable, size):
-    it = iter(iterable)
-    while True:
-        chunk = list(islice(it, size))
-        if not chunk:
-            break
-        yield chunk
+def run_puredns_resolve(
+    domain: str,
+    hosts: Iterable[str],
+    timeout: int,
+    resolvers: Optional[str] = None,
+    trusted_resolvers: Optional[str] = None,
+) -> Tuple[Set[str], Set[str], ToolRun]:
+    candidates = sorted(set(hosts))
+    if not candidates:
+        return set(), set(), ToolRun("puredns", [], True, 0.0, observations=0)
 
-def filter_httpx(subdomains, output_file, info_output_file, timeout=None):
-    if not subdomains:
-        return set()
+    with tempfile.TemporaryDirectory(prefix="subenum-puredns-") as tmp:
+        base = Path(tmp)
+        input_path = base / "input.txt"
+        valid_path = base / "valid.txt"
+        wildcard_path = base / "wildcards.txt"
+        write_lines(input_path, candidates)
+        command = [
+            "puredns", "resolve", str(input_path),
+            "--write", str(valid_path),
+            "--write-wildcards", str(wildcard_path),
+        ]
+        if resolvers:
+            command.extend(["--resolvers", resolvers])
+        if trusted_resolvers:
+            command.extend(["--resolvers-trusted", trusted_resolvers])
+        run, _ = run_command(command, "puredns", timeout)
+        valid = set(valid_path.read_text(encoding="utf-8").splitlines()) if valid_path.exists() else set()
+        wildcards = set(wildcard_path.read_text(encoding="utf-8").splitlines()) if wildcard_path.exists() else set()
+        valid = {host for host in (normalize_candidate(item, domain) for item in valid) if host}
+        wildcards = {item.strip().lstrip("*.").rstrip(".") for item in wildcards if item.strip()}
+        run.observations = len(valid)
+        run.metadata["wildcard_roots"] = sorted(wildcards)
+        return valid, wildcards, run
 
-    BATCH_SIZE = 100
-    total_subs = len(subdomains)
-    
-    # We'll collect all formatted output to write to info file at the end.
-    all_raw_output: List[str] = []
 
-    logger.info(f"[*] Running httpx on {total_subs} subdomains (Batch size: {BATCH_SIZE})...")
+def run_puredns_bruteforce(
+    domain: str,
+    wordlist: str,
+    timeout: int,
+    resolvers: Optional[str] = None,
+    trusted_resolvers: Optional[str] = None,
+) -> Tuple[Set[str], Set[str], ToolRun]:
+    with tempfile.TemporaryDirectory(prefix="subenum-brute-") as tmp:
+        base = Path(tmp)
+        valid_path = base / "valid.txt"
+        wildcard_path = base / "wildcards.txt"
+        command = [
+            "puredns", "bruteforce", wordlist, domain,
+            "--write", str(valid_path),
+            "--write-wildcards", str(wildcard_path),
+        ]
+        if resolvers:
+            command.extend(["--resolvers", resolvers])
+        if trusted_resolvers:
+            command.extend(["--resolvers-trusted", trusted_resolvers])
+        run, _ = run_command(command, "puredns:bruteforce", timeout)
+        valid = set(valid_path.read_text(encoding="utf-8").splitlines()) if valid_path.exists() else set()
+        wildcards = set(wildcard_path.read_text(encoding="utf-8").splitlines()) if wildcard_path.exists() else set()
+        valid = {host for host in (normalize_candidate(item, domain) for item in valid) if host}
+        wildcards = {item.strip().lstrip("*.").rstrip(".") for item in wildcards if item.strip()}
+        run.observations = len(valid)
+        run.metadata["wildcard_roots"] = sorted(wildcards)
+        return valid, wildcards, run
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("{task.completed}/{task.total}", justify="right"),
-        TimeElapsedColumn(),
-        transient=False
-    ) as progress:
-        task = progress.add_task("[cyan]Checking candidates...", total=total_subs)
-        
-        for batch in chunked_iterable(subdomains, BATCH_SIZE):
-            temp_path = None
-            try:
-                with tempfile.NamedTemporaryFile(mode='w+', delete=False) as temp:
-                    temp.write("\n".join(batch))
-                    temp_path = temp.name
 
-                # Add -threads for speed if needed, normally httpx handles it well. 
-                # -threads 50 is default. Let's bump to 100 for batch processing.
-                httpx_command = [
-                    "httpx", "-ip", "-cdn", "-title", "-status-code", "-tech-detect", 
-                    "-silent", "-l", temp_path, "-threads", "100"
-                ]
-                
-                # Run subprocess for this batch
-                result = subprocess.run(httpx_command, capture_output=True, text=True, timeout=timeout)
-                
-                if result.stdout:
-                    lines = result.stdout.strip().splitlines()
-                    # raw httpx output lines
-                    all_raw_output.extend(lines)
+def run_httpx(
+    domain: str,
+    hosts: Iterable[str],
+    timeout: int,
+    threads: int = 50,
+) -> Tuple[Dict[str, List[Dict[str, Any]]], ToolRun]:
+    candidates = sorted(set(hosts))
+    if not candidates:
+        return {}, ToolRun("httpx", [], True, 0.0, observations=0)
+    temp_path: Optional[str] = None
+    try:
+        with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as handle:
+            handle.write("\n".join(candidates) + "\n")
+            temp_path = handle.name
+        command = [
+            "httpx", "-l", temp_path, "-json", "-silent", "-disable-update-check",
+            "-status-code", "-title", "-tech-detect", "-ip", "-cname", "-cdn",
+            "-threads", str(max(1, threads)),
+        ]
+        run, stdout = run_command(command, "httpx", timeout)
+        results: Dict[str, List[Dict[str, Any]]] = {}
+        for item in _parse_json_lines(stdout):
+            raw_host = item.get("host") or item.get("input") or item.get("url")
+            normalized = normalize_candidate(str(raw_host or ""), domain)
+            if not normalized and item.get("url"):
+                match = re.match(r"https?://([^/:]+)", str(item["url"]))
+                if match:
+                    normalized = normalize_candidate(match.group(1), domain)
+            if not normalized:
+                continue
+            evidence = {
+                "url": item.get("url") or item.get("input"),
+                "status_code": item.get("status_code"),
+                "title": item.get("title"),
+                "technologies": item.get("tech") or item.get("technologies") or [],
+                "ip": item.get("host_ip") or item.get("ip"),
+                "cname": item.get("cname"),
+                "cdn": item.get("cdn_name") or item.get("cdn"),
+                "webserver": item.get("webserver"),
+            }
+            results.setdefault(normalized, []).append({k: v for k, v in evidence.items() if v not in (None, "", [])})
+        run.observations = sum(len(items) for items in results.values())
+        return results, run
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
 
-            except subprocess.TimeoutExpired:
-                 # Just log specific failure but continue
-                  logger.warning("[!] Batch timeout.")
-            except Exception as e:
-                  logger.warning(f"[!] Batch error: {e}")
-            finally:
-                if temp_path and os.path.exists(temp_path):
-                    os.remove(temp_path)
-            
-            # Update progress by batch length
-            progress.advance(task, advance=len(batch))
 
-    # After loop, process results
-    if all_raw_output:
-        with open(info_output_file, "w") as f:
-            f.write("\n".join(all_raw_output))
-            # Silenced info save message
-
-    urls: Set[str] = set()
-    for line in all_raw_output:
-        match = re.search(r'(https?://\S+)', line)
-        if match:
-            urls.add(match.group(1))
-
-    if not urls:
-            logger.warning("[!] httpx returned 0 results.")
-
-    with open(output_file, "w") as file:
-        file.write("\n".join(sorted(urls)))
-
-    # Return the set of parsed URLs (not raw httpx lines) for accurate counts and downstream use
-    return urls
+def tool_version(tool: str, timeout: int = 10) -> Optional[str]:
+    path = shutil.which(tool)
+    if not path:
+        return None
+    flags = ["-version", "--version", "version"]
+    for flag in flags:
+        run, stdout = run_command([path, flag], f"{tool}:version", timeout)
+        text = (stdout or run.stderr).strip()
+        if run.success and text:
+            return text.splitlines()[0][:200]
+    return "installed"
 
 
 def parse_httpx_output(lines: Iterable[str]) -> Set[str]:
-    """Parse raw httpx lines and extract URLs.
-
-    This helper is useful for unit tests to validate parsing.
-    """
+    """Legacy helper retained for downstream users/tests of v0.1 output."""
     urls: Set[str] = set()
     for line in lines:
-        match = re.search(r'(https?://\S+)', line)
+        match = re.search(r"(https?://\S+)", line)
         if match:
             urls.add(match.group(1))
     return urls

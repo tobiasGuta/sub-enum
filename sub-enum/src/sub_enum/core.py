@@ -1,245 +1,531 @@
+from __future__ import annotations
+
 import argparse
-import os
-import concurrent.futures
-from concurrent.futures import ThreadPoolExecutor
-import subprocess
-from typing import Optional, Set
+import json
+import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from typing import Dict, Iterable, List, Optional, Sequence, Set
 
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from rich.table import Table
 
-from .config import (
-    ART, REQUIRED_TOOLS_BASIC, REQUIRED_TOOLS_FULL, REQUIRED_TOOLS_PERM,
-    RED, GREEN, YELLOW, BLUE, RESET
+from .config import ART, OPTIONAL_TOOLS, PINNED_GO_TOOLS, REQUIRED_STANDARD, VERSION
+from .history import diff_recent, latest_source_stats, recent_scans, save_scan
+from .installers import init_workspace, install_many
+from .models import AssetRecord, source_statistics
+from .tools import (
+    ToolRun,
+    run_alterx,
+    run_assetfinder,
+    run_dnsx,
+    run_findomain,
+    run_httpx,
+    run_puredns_bruteforce,
+    run_puredns_resolve,
+    run_subfinder,
+    tool_version,
 )
 from .utils import (
-    load_env, validate_domain, check_tool_availability,
-    ensure_path_context, remove_conflicting_httpx, set_auto_yes,
-    configure_logging, get_logger
+    check_tool_availability,
+    configure_logging,
+    ensure_path_context,
+    get_logger,
+    load_env,
+    normalize_candidate,
+    validate_domain,
+    write_lines,
 )
-from .installers import (
-    install_go, install_tool_go, install_findomain,
-    install_altdns, init_workspace
-)
-from .tools import run_tool, run_dnsx, run_altdns, filter_httpx
-
 
 logger = get_logger(__name__)
+console = Console()
 
 
-def _resolve_safe_output_path(base_dir: str, requested_path: str, label: str) -> Optional[str]:
-    """Resolve an output path and reject paths that escape the target directory."""
-    if os.path.isabs(requested_path):
-        candidate = os.path.realpath(requested_path)
+def _asset(assets: Dict[str, AssetRecord], hostname: str, root_domain: str) -> AssetRecord:
+    if hostname not in assets:
+        assets[hostname] = AssetRecord(hostname=hostname, root_domain=root_domain)
+    return assets[hostname]
+
+
+def _merge_observations(
+    assets: Dict[str, AssetRecord],
+    observations: Dict[str, Set[str]],
+    root_domain: str,
+    method: str,
+) -> None:
+    for hostname, sources in observations.items():
+        normalized = normalize_candidate(hostname, root_domain)
+        if not normalized:
+            continue
+        asset = _asset(assets, normalized, root_domain)
+        for source in sources:
+            asset.observe(source, method)
+
+
+def _record_run(run_log: List[ToolRun], run: ToolRun) -> None:
+    run_log.append(run)
+    if run.success:
+        logger.success(f"[✓] {run.name}: {run.observations} observations in {run.duration_seconds:.2f}s")
     else:
-        candidate = os.path.realpath(os.path.join(base_dir, requested_path))
+        detail = run.error or run.stderr or "unknown error"
+        logger.warning(f"[!] {run.name} failed: {detail}")
 
-    base_real = os.path.realpath(base_dir)
-    try:
-        if os.path.commonpath([candidate, base_real]) != base_real:
-            logger.error(f"[✗] Refusing unsafe {label} path outside {base_dir}: {requested_path}")
-            return None
-    except ValueError:
-        logger.error(f"[✗] Refusing unsafe {label} path: {requested_path}")
-        return None
 
-    return candidate
+def _required_for_profile(profile: str, no_http: bool, no_permutations: bool) -> Set[str]:
+    required = {"subfinder"}
+    if profile != "passive":
+        required.add("dnsx")
+        if not no_http:
+            required.add("httpx")
+        if not no_permutations:
+            required.add("alterx")
+    return required
 
-def main():
-    parser = argparse.ArgumentParser(description="Automated Subdomain Discovery Tool (Community Edition)", 
-                                     formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument("-d", "--domain", help="Target domain (e.g., example.com)")
-    parser.add_argument("-L", "--targets-file", help="File with one target domain per line")
-    parser.add_argument("-o", "--output", default="all_subdomains.txt", help="Output file for all discovered subdomains")
-    parser.add_argument("-l", "--live-output", default="live_subdomains.txt", help="Output file for live subdomains")
-    parser.add_argument("--full", action="store_true", help="Use all available tools (including chaos)")
-    parser.add_argument("--permutations", action="store_true", help="Run permutation scanning using altdns")
-    parser.add_argument("--config", default=".env", help="Path to configuration file (default: .env)")
-    parser.add_argument("--timeout", type=int, default=600, help="Timeout for each tool in seconds (default: 600)")
-    parser.add_argument("--yes", action="store_true", help="Automatic yes to prompts (non-interactive)")
-    parser.add_argument("--workers", type=int, default=1, help="Number of parallel worker targets to run (default: 1)")
-    
-    args = parser.parse_args()
 
-    configure_logging()
-    logger.info(ART, extra={"raw": True})
-    
+def _missing_tools(names: Iterable[str]) -> List[str]:
+    return sorted(name for name in set(names) if not check_tool_availability(name))
+
+
+def _write_artifacts(
+    output_dir: Path,
+    assets: Dict[str, AssetRecord],
+    runs: Sequence[ToolRun],
+    wildcard_roots: Set[str],
+) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    ordered = sorted(assets.values(), key=lambda item: item.hostname)
+
+    with (output_dir / "assets.jsonl").open("w", encoding="utf-8") as handle:
+        for asset in ordered:
+            handle.write(json.dumps(asset.to_dict(), sort_keys=True) + "\n")
+
+    discovered = [asset.hostname for asset in ordered]
+    resolved = [asset.hostname for asset in ordered if asset.dns_validated]
+    live_urls = sorted(
+        {
+            str(item.get("url"))
+            for asset in ordered
+            for item in asset.http
+            if item.get("url")
+        }
+    )
+    dangling = [asset.hostname for asset in ordered if asset.dangling_cname_candidate]
+
+    write_lines(output_dir / "all_subdomains.txt", discovered)
+    write_lines(output_dir / "resolved_subdomains.txt", resolved)
+    write_lines(output_dir / "live_subdomains.txt", live_urls)
+    write_lines(output_dir / "wildcard_roots.txt", wildcard_roots)
+    write_lines(output_dir / "dangling_cname_candidates.txt", dangling)
+
+    stats = source_statistics(ordered)
+    (output_dir / "source_stats.json").write_text(
+        json.dumps(stats, indent=2, sort_keys=False) + "\n", encoding="utf-8"
+    )
+    run_payload = [
+        {
+            "name": run.name,
+            "success": run.success,
+            "duration_seconds": round(run.duration_seconds, 3),
+            "returncode": run.returncode,
+            "error": run.error,
+            "stderr": run.stderr[-2000:] if run.stderr else "",
+            "observations": run.observations,
+            "metadata": run.metadata,
+            "command": run.command,
+        }
+        for run in runs
+    ]
+    (output_dir / "run_manifest.json").write_text(
+        json.dumps(run_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
+def _mark_dangling_candidates(assets: Dict[str, AssetRecord]) -> None:
+    for asset in assets.values():
+        cname = asset.dns.get("cname")
+        if cname and not asset.dns.get("a") and not asset.dns.get("aaaa"):
+            asset.dangling_cname_candidate = True
+
+
+def _resolve_stage(
+    domain: str,
+    candidates: Set[str],
+    assets: Dict[str, AssetRecord],
+    args: argparse.Namespace,
+    run_log: List[ToolRun],
+    wildcard_roots: Set[str],
+) -> Set[str]:
+    if not candidates:
+        return set()
+
+    validated_candidates = set(candidates)
+    use_puredns = (
+        args.dns_backend == "puredns"
+        or (
+            args.dns_backend == "auto"
+            and args.profile == "deep"
+            and check_tool_availability("puredns")
+            and check_tool_availability("massdns")
+            and bool(args.resolvers)
+        )
+    )
+    if use_puredns:
+        if not check_tool_availability("puredns") or not check_tool_availability("massdns"):
+            logger.warning("[!] PureDNS requested but puredns/massdns is unavailable; falling back to dnsx.")
+        elif not args.resolvers:
+            logger.warning("[!] PureDNS requested without --resolvers; falling back to dnsx for predictable results.")
+        else:
+            valid, wildcards, run = run_puredns_resolve(
+                domain,
+                candidates,
+                timeout=args.timeout,
+                resolvers=args.resolvers,
+                trusted_resolvers=args.trusted_resolvers,
+            )
+            _record_run(run_log, run)
+            if run.success:
+                validated_candidates = valid
+                wildcard_roots.update(wildcards)
+
+    records, dns_runs = run_dnsx(
+        domain,
+        validated_candidates,
+        timeout=args.timeout,
+        rate_limit=args.dns_rate,
+    )
+    for run in dns_runs:
+        _record_run(run_log, run)
+
+    resolved: Set[str] = set()
+    for hostname, evidence in records.items():
+        asset = _asset(assets, hostname, domain)
+        asset.merge_dns(evidence)
+        if evidence.get("wildcard"):
+            asset.wildcard = True
+        if asset.dns_validated and not asset.wildcard:
+            resolved.add(hostname)
+    _mark_dangling_candidates(assets)
+    return resolved
+
+
+def scan_target(domain: str, args: argparse.Namespace) -> int:
+    output_dir = Path(args.output_root).expanduser().resolve() / domain
+    assets: Dict[str, AssetRecord] = {}
+    run_log: List[ToolRun] = []
+    wildcard_roots: Set[str] = set()
+
+    logger.info(f"[*] Passive discovery for {domain}")
+    passive_jobs = []
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        passive_jobs.append(executor.submit(run_subfinder, domain, args.timeout, args.all_sources))
+        if not args.no_findomain and check_tool_availability("findomain"):
+            passive_jobs.append(executor.submit(run_findomain, domain, args.timeout))
+        if args.assetfinder and check_tool_availability("assetfinder"):
+            passive_jobs.append(executor.submit(run_assetfinder, domain, args.timeout))
+
+        for future in as_completed(passive_jobs):
+            observations, run = future.result()
+            _record_run(run_log, run)
+            _merge_observations(assets, observations, domain, "passive")
+
+    if not assets:
+        logger.warning(f"[!] No in-scope passive observations were produced for {domain}.")
+
+    if args.profile == "passive":
+        _write_artifacts(output_dir, assets, run_log, wildcard_roots)
+        if not args.no_history:
+            save_scan(domain, args.profile, assets.values(), source_statistics(assets.values()))
+        return 0
+
+    initial_candidates = set(assets)
+    resolved = _resolve_stage(domain, initial_candidates, assets, args, run_log, wildcard_roots)
+
+    if not args.no_permutations and check_tool_availability("alterx") and assets:
+        logger.info(f"[*] Generating target-aware permutations for {domain}")
+        seed_hosts = sorted(resolved or set(assets))
+        generated, run = run_alterx(
+            domain,
+            seed_hosts,
+            timeout=args.timeout,
+            limit=args.alterx_limit,
+        )
+        _record_run(run_log, run)
+        new_candidates: Set[str] = set()
+        for hostname in generated:
+            if hostname in assets:
+                continue
+            asset = _asset(assets, hostname, domain)
+            asset.observe("alterx:enrich", "permutation")
+            new_candidates.add(hostname)
+        resolved.update(_resolve_stage(domain, new_candidates, assets, args, run_log, wildcard_roots))
+
+    if args.profile == "deep" and args.wordlist:
+        if not (check_tool_availability("puredns") and check_tool_availability("massdns")):
+            logger.warning("[!] --wordlist deep brute force requires both puredns and massdns; skipping brute force.")
+        elif not args.resolvers:
+            logger.warning("[!] --wordlist deep brute force requires --resolvers; skipping brute force.")
+        else:
+            logger.info(f"[*] Deep DNS bruteforce for {domain}")
+            brute_hosts, wildcards, run = run_puredns_bruteforce(
+                domain,
+                args.wordlist,
+                timeout=args.timeout,
+                resolvers=args.resolvers,
+                trusted_resolvers=args.trusted_resolvers,
+            )
+            _record_run(run_log, run)
+            wildcard_roots.update(wildcards)
+            new_brute: Set[str] = set()
+            for hostname in brute_hosts:
+                asset = _asset(assets, hostname, domain)
+                asset.observe("puredns:bruteforce", "bruteforce")
+                new_brute.add(hostname)
+            resolved.update(_resolve_stage(domain, new_brute, assets, args, run_log, wildcard_roots))
+
+    if not args.no_http and resolved:
+        logger.info(f"[*] HTTP enrichment for {len(resolved)} DNS-validated hosts")
+        http_results, run = run_httpx(
+            domain,
+            resolved,
+            timeout=args.timeout,
+            threads=args.http_threads,
+        )
+        _record_run(run_log, run)
+        for hostname, observations in http_results.items():
+            asset = _asset(assets, hostname, domain)
+            for observation in observations:
+                asset.add_http(observation)
+
+    _write_artifacts(output_dir, assets, run_log, wildcard_roots)
+    stats = source_statistics(assets.values())
+    scan_id: Optional[int] = None
+    if not args.no_history:
+        scan_id = save_scan(domain, args.profile, assets.values(), stats)
+
+    logger.success(f"[✓] {domain}: {len(assets)} discovered, {len(resolved)} DNS-validated")
+    logger.success(f"[✓] Results: {output_dir}")
+    if scan_id is not None:
+        logger.info(f"[*] History scan id: {scan_id}")
+    return 0
+
+
+def _targets_from_args(args: argparse.Namespace) -> List[str]:
+    raw: List[str] = []
+    if args.domain:
+        raw.append(args.domain)
+    if args.targets_file:
+        path = Path(args.targets_file)
+        if not path.is_file():
+            raise ValueError(f"targets file not found: {path}")
+        raw.extend(line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+
+    targets: List[str] = []
+    for value in raw:
+        domain = validate_domain(value)
+        if not domain:
+            logger.warning(f"[!] Skipping invalid target: {value}")
+            continue
+        if domain not in targets:
+            targets.append(domain)
+    return targets
+
+
+def run_scan(args: argparse.Namespace) -> int:
     load_env(args.config)
-    set_auto_yes(args.yes)
-    # create workspace dirs explicitly
+    required = _required_for_profile(args.profile, args.no_http, args.no_permutations)
+    missing = _missing_tools(required)
+    if missing:
+        logger.error(f"[✗] Missing required tools: {', '.join(missing)}")
+        logger.error("    Run: sub-enum doctor --install")
+        return 3
+
+    targets = _targets_from_args(args)
+    if not targets:
+        logger.error("[✗] No valid target. Use -d DOMAIN or -L FILE.")
+        return 2
+
+    workers = max(1, args.workers)
+    if workers == 1 or len(targets) == 1:
+        results = [scan_target(domain, args) for domain in targets]
+    else:
+        results = []
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(scan_target, domain, args): domain for domain in targets}
+            for future in as_completed(futures):
+                domain = futures[future]
+                try:
+                    results.append(future.result())
+                except Exception as exc:  # pragma: no cover - outer isolation boundary
+                    logger.error(f"[✗] Unexpected target failure for {domain}: {exc}")
+                    results.append(1)
+    return 0 if all(code == 0 for code in results) else 1
+
+
+def run_doctor(args: argparse.Namespace) -> int:
+    if args.install:
+        managed = ["subfinder", "dnsx", "httpx", "alterx", "puredns"]
+        install_many(name for name in managed if not check_tool_availability(name))
+        ensure_path_context()
+
+    table = Table(title=f"Sub-Enum {VERSION} environment")
+    table.add_column("Tool")
+    table.add_column("Role")
+    table.add_column("Status")
+    table.add_column("Version / pin")
+
+    roles = {
+        "subfinder": "primary passive discovery",
+        "dnsx": "DNS validation / wildcard filtering",
+        "httpx": "HTTP enrichment",
+        "findomain": "secondary passive discovery",
+        "alterx": "target-aware permutations",
+        "puredns": "optional deep DNS backend",
+        "massdns": "PureDNS backend",
+        "assetfinder": "optional compatibility source",
+    }
+    names = list(REQUIRED_STANDARD) + [name for name in OPTIONAL_TOOLS if name not in REQUIRED_STANDARD]
+    for name in names:
+        installed = check_tool_availability(name)
+        status = "OK" if installed else ("optional" if name in OPTIONAL_TOOLS else "MISSING")
+        version = tool_version(name) if installed else ""
+        if name in PINNED_GO_TOOLS:
+            pin = PINNED_GO_TOOLS[name][1]
+            version = f"{version or 'installed'} (tested: {pin})" if installed else f"tested: {pin}"
+        table.add_row(name, roles[name], status, version or "-")
+    console.print(table)
+    console.print(f"Python: {sys.version.split()[0]}")
+    return 0
+
+
+def run_diff(args: argparse.Namespace) -> int:
+    domain = validate_domain(args.domain)
+    if not domain:
+        return 2
+    result = diff_recent(domain)
+    if not result:
+        console.print(f"Need at least two saved scans for {domain}.")
+        return 0
+    console.print(f"[bold]Diff for {domain}[/bold]")
+    console.print(f"Added: {len(result['added'])}  Removed: {len(result['removed'])}  Changed: {len(result['changed'])}")
+    for hostname in result["added"]:
+        console.print(f"[green]+ {hostname}[/green]")
+    for hostname in result["removed"]:
+        console.print(f"[red]- {hostname}[/red]")
+    for item in result["changed"]:
+        console.print(f"[yellow]~ {item['hostname']}[/yellow]")
+    if args.json:
+        console.print_json(data=result)
+    return 0
+
+
+def run_history(args: argparse.Namespace) -> int:
+    domain = validate_domain(args.domain)
+    if not domain:
+        return 2
+    rows = recent_scans(domain, limit=args.limit)
+    table = Table(title=f"Scan history: {domain}")
+    for column in ("ID", "Profile", "Created", "Assets"):
+        table.add_column(column)
+    for row in rows:
+        table.add_row(str(row["id"]), str(row["profile"]), str(row["created_at"]), str(row["asset_count"]))
+    console.print(table)
+    return 0
+
+
+def run_sources(args: argparse.Namespace) -> int:
+    domain = validate_domain(args.domain)
+    if not domain:
+        return 2
+    stats = latest_source_stats(domain)
+    if not stats:
+        console.print(f"No saved source statistics for {domain}. Run a scan first.")
+        return 0
+    table = Table(title=f"Latest source contribution: {domain}")
+    table.add_column("Source")
+    table.add_column("Observed assets", justify="right")
+    for source, count in stats.items():
+        table.add_row(source, str(count))
+    console.print(table)
+    return 0
+
+
+def _add_scan_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("-d", "--domain")
+    parser.add_argument("-L", "--targets-file")
+    parser.add_argument("--profile", choices=("passive", "standard", "deep"), default="standard")
+    parser.add_argument("--output-root", default=".", help="Parent directory for per-domain outputs")
+    parser.add_argument("--config", default=".env", help="Optional allowlisted credential env file")
+    parser.add_argument("--timeout", type=int, default=600, help="Per-tool timeout in seconds")
+    parser.add_argument("--workers", type=int, default=1, help="Parallel root-domain workers")
+    parser.add_argument("--dns-rate", type=int, default=0, help="dnsx requests/second; 0 leaves tool default")
+    parser.add_argument("--http-threads", type=int, default=50)
+    parser.add_argument("--alterx-limit", type=int, default=5000, help="Maximum target-aware permutations")
+    parser.add_argument("--dns-backend", choices=("auto", "dnsx", "puredns"), default="auto")
+    parser.add_argument("--resolvers", help="Resolver list for PureDNS deep mode")
+    parser.add_argument("--trusted-resolvers", help="Optional trusted resolver list for PureDNS")
+    parser.add_argument("--wordlist", help="Deep profile PureDNS brute-force wordlist")
+    parser.add_argument("--all-sources", action="store_true", help="Ask Subfinder to use all configured sources")
+    parser.add_argument("--assetfinder", action="store_true", help="Opt in to legacy Assetfinder source")
+    parser.add_argument("--no-findomain", action="store_true")
+    parser.add_argument("--no-permutations", action="store_true")
+    parser.add_argument("--no-http", action="store_true")
+    parser.add_argument("--no-history", action="store_true")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="sub-enum",
+        description="Evidence-rich subdomain enumeration for bug bounty reconnaissance.",
+    )
+    parser.add_argument("--version", action="version", version=f"sub-enum {VERSION}")
+    sub = parser.add_subparsers(dest="command")
+
+    scan = sub.add_parser("scan", help="Discover and validate subdomains")
+    _add_scan_arguments(scan)
+
+    doctor = sub.add_parser("doctor", help="Inspect the recon toolchain")
+    doctor.add_argument("--install", action="store_true", help="Install missing managed Go tools at tested refs")
+
+    diff_parser = sub.add_parser("diff", help="Compare the two most recent scans")
+    diff_parser.add_argument("domain")
+    diff_parser.add_argument("--json", action="store_true")
+
+    history_parser = sub.add_parser("history", help="List saved scans")
+    history_parser.add_argument("domain")
+    history_parser.add_argument("--limit", type=int, default=10)
+
+    sources_parser = sub.add_parser("sources", help="Show latest per-source contribution")
+    sources_parser.add_argument("domain")
+
+    return parser
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    configure_logging()
     init_workspace()
     ensure_path_context()
+    logger.info(ART, extra={"raw": True})
 
-    # Build list of targets from -d or -L
-    targets = []
-    if args.domain:
-        targets.append(args.domain)
-    if args.targets_file:
-        if not os.path.exists(args.targets_file):
-            logger.error(f"[✗] Targets file not found: {args.targets_file}")
-            return
-        with open(args.targets_file, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    targets.append(line)
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    if raw_argv and raw_argv[0] not in {"scan", "doctor", "diff", "history", "sources", "-h", "--help", "--version"}:
+        if any(token in raw_argv for token in ("-d", "--domain", "-L", "--targets-file")):
+            raw_argv = ["scan", *raw_argv]
+    elif raw_argv and raw_argv[0] in {"-d", "--domain", "-L", "--targets-file"}:
+        raw_argv = ["scan", *raw_argv]
 
-    if not targets:
-        logger.error("[✗] No target specified. Use -d or -L.")
-        return
+    parser = build_parser()
+    args = parser.parse_args(raw_argv)
 
-    # Validate and normalize targets
-    clean_targets = []
-    for t in targets:
-        domain = validate_domain(t)
-        if not domain:
-            logger.warning(f"[!] Skipping invalid domain: {t}")
-            continue
-        clean_targets.append(domain)
+    if args.command == "scan":
+        return run_scan(args)
+    if args.command == "doctor":
+        return run_doctor(args)
+    if args.command == "diff":
+        return run_diff(args)
+    if args.command == "history":
+        return run_history(args)
+    if args.command == "sources":
+        return run_sources(args)
 
-    if not clean_targets:
-        logger.error("[✗] No valid targets to process.")
-        return
-
-    # We'll run each target in its own workspace directory. The per-target run
-    # will create the directories it needs.
-
-    def run_for_target(domain: str) -> None:
-        output_dir = domain
-        if not os.path.exists(output_dir):
-            try:
-                os.makedirs(output_dir)
-                logger.info(f"[*] Created output directory: {output_dir}")
-            except OSError as e:
-                logger.error(f"[✗] Failed to create directory {output_dir}: {e}")
-                return
-
-        output_file = _resolve_safe_output_path(output_dir, args.output, "output")
-        if not output_file:
-            return
-
-        live_output_file = _resolve_safe_output_path(output_dir, args.live_output, "live output")
-        if not live_output_file:
-            return
-
-        info_output_file = os.path.join(output_dir, "live_subdomains_info.txt")
-
-        # Check tool availability for this run
-        tools_to_check = REQUIRED_TOOLS_BASIC.copy()
-        if args.full:
-            tools_to_check.extend(REQUIRED_TOOLS_FULL)
-            logger.warning("[ WARNING] Full mode enabled. Ensure API keys are set for Chaos.")
-        if args.permutations:
-            tools_to_check.extend(REQUIRED_TOOLS_PERM)
-
-        missing_tools = []
-        for tool in tools_to_check:
-            if not check_tool_availability(tool):
-                missing_tools.append(tool)
-
-        if "httpx" not in missing_tools:
-            try:
-                subprocess.run(["httpx", "-version"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except Exception:
-                logger.warning("[!] Detected incorrect httpx version (likely python-httpx).")
-                remove_conflicting_httpx()
-                if not check_tool_availability("httpx"):
-                    missing_tools.append("httpx")
-
-        # Attempt installs only if needed; installers will respect auto-yes
-        if missing_tools:
-            logger.warning(f"[!] Missing tools: {', '.join(missing_tools)}")
-            go_based_tools = {"assetfinder", "subfinder", "httpx", "dnsx", "chaos"}
-            if any(tool in missing_tools for tool in go_based_tools) and not check_tool_availability("go"):
-                install_go()
-                ensure_path_context()
-                if not check_tool_availability("go"):
-                    logger.error("[✗] Go is still missing. Cannot proceed with Go-based tools.")
-                    return
-
-            if "assetfinder" in missing_tools:
-                install_tool_go("assetfinder", "github.com/tomnomnom/assetfinder")
-            if "subfinder" in missing_tools:
-                install_tool_go("subfinder", "github.com/projectdiscovery/subfinder/v2/cmd/subfinder")
-            if "httpx" in missing_tools:
-                install_tool_go("httpx", "github.com/projectdiscovery/httpx/cmd/httpx")
-            if "dnsx" in missing_tools:
-                install_tool_go("dnsx", "github.com/projectdiscovery/dnsx/cmd/dnsx")
-            if "chaos" in missing_tools and args.full:
-                install_tool_go("chaos", "github.com/projectdiscovery/chaos-client/cmd/chaos")
-            if "findomain" in missing_tools:
-                install_findomain()
-            if "altdns" in missing_tools and args.permutations:
-                install_altdns()
-
-        # Build discovery commands
-        commands = {
-            "Subfinder": ["subfinder", "-silent", "-d", domain],
-            "Assetfinder": ["assetfinder", "--subs-only", domain],
-            "Findomain": ["findomain", "-t", domain]
-        }
-        if args.full:
-            commands["Chaos"] = ["chaos", "-d", domain]
-
-        console = Console()
-        logger.info(f"[*] Discovering subdomains for {domain}...")
-
-        all_subdomains = set()
-
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TaskProgressColumn(),
-            console=console,
-            transient=True
-        ) as progress:
-            task = progress.add_task("[cyan]Running discovery tools...", total=len(commands))
-
-            with ThreadPoolExecutor(max_workers=len(commands)) as executor:
-                future_to_tool = {executor.submit(run_tool, cmd, name, args.timeout): name for name, cmd in commands.items()}
-
-                for future in concurrent.futures.as_completed(future_to_tool):
-                    tool_name = future_to_tool[future]
-                    progress.advance(task)
-                    try:
-                        results = future.result()
-                        logger.success(f"[+] {tool_name} found {len(results)} subdomains")
-                        all_subdomains.update(results)
-                    except Exception as exc:
-                        logger.error(f"[✗] {tool_name} generated an exception: {exc}")
-
-        logger.info("[*] Verifying subdomains with dnsx...")
-
-        with console.status("[bold green]Running dnsx resolution...") as status:
-            resolved_subdomains = run_dnsx(all_subdomains, args.timeout)
-
-        if args.permutations:
-            with console.status("[bold green]Running altdns permutations...") as status:
-                perm_subdomains = run_altdns(domain, resolved_subdomains, output_dir, args.timeout)
-                resolved_subdomains.update(perm_subdomains)
-
-        with open(output_file, "w") as file:
-            file.write("\n".join(sorted(resolved_subdomains)) + "\n")
-        logger.success(f"[✓] Saved {len(resolved_subdomains)} resolved subdomains to {output_file}")
-
-        live_urls = filter_httpx(resolved_subdomains, live_output_file, info_output_file, args.timeout)
-        logger.success(f"[✓] Saved {len(live_urls)} live subdomains to {live_output_file}")
-
-    # Run targets with workers
-    workers = max(1, args.workers)
-    if len(clean_targets) == 1 and workers > 1:
-        logger.warning(f"[!] Single target supplied; ignoring --workers={workers} and running sequentially.")
-    if len(clean_targets) == 1 or workers == 1:
-        for t in clean_targets:
-            run_for_target(t)
-    else:
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            future_to_target = {pool.submit(run_for_target, t): t for t in clean_targets}
-            for future in concurrent.futures.as_completed(future_to_target):
-                target = future_to_target[future]
-                try:
-                    _ = future.result()
-                except Exception as e:
-                    logger.error(f"[✗] Error processing target {target}: {e}")
-    # end of main
+    parser.print_help()
+    return 0
