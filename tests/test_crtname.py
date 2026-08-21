@@ -133,7 +133,7 @@ def test_crtname_scope_rejection_of_out_of_scope_and_boundary_tricks():
     raw_json = json.dumps(fixture).encode("utf-8")
 
     with patch("urllib.request.urlopen", return_value=io.BytesIO(raw_json)):
-        observations, run, meta = run_crtname("example.com", timeout=10)
+        observations, run, _ = run_crtname("example.com", timeout=10)
 
     assert set(observations.keys()) == {"valid.example.com"}
     assert run.observations == 1
@@ -142,7 +142,7 @@ def test_crtname_scope_rejection_of_out_of_scope_and_boundary_tricks():
 def test_crtname_empty_response_success():
     raw_json = b"[]"
     with patch("urllib.request.urlopen", return_value=io.BytesIO(raw_json)):
-        observations, run, meta = run_crtname("example.com", timeout=10)
+        observations, run, _ = run_crtname("example.com", timeout=10)
 
     assert run.success is True
     assert run.error is None
@@ -160,7 +160,7 @@ def test_crtname_http_429_rate_limit_circuit_breaker():
     )
 
     with patch("urllib.request.urlopen", side_effect=http_err):
-        observations1, run1, meta1 = run_crtname("example.com", timeout=10)
+        _, run1, _ = run_crtname("example.com", timeout=10)
 
     assert run1.success is False
     assert run1.error == "rate_limited"
@@ -168,7 +168,7 @@ def test_crtname_http_429_rate_limit_circuit_breaker():
 
     # Subsequent invocation should be short-circuited immediately without network call
     with patch("urllib.request.urlopen") as mock_urlopen:
-        observations2, run2, meta2 = run_crtname("example2.com", timeout=10)
+        _, run2, _ = run_crtname("example2.com", timeout=10)
         mock_urlopen.assert_not_called()
 
     assert run2.success is False
@@ -185,7 +185,7 @@ def test_crtname_http_500_error():
     )
 
     with patch("urllib.request.urlopen", side_effect=http_err):
-        observations, run, meta = run_crtname("example.com", timeout=10)
+        _, run, _ = run_crtname("example.com", timeout=10)
 
     assert run.success is False
     assert "HTTP 500" in (run.error or "")
@@ -194,7 +194,7 @@ def test_crtname_http_500_error():
 
 def test_crtname_network_timeout():
     with patch("urllib.request.urlopen", side_effect=socket.timeout("timed out")):
-        observations, run, meta = run_crtname("example.com", timeout=10)
+        _, run, _ = run_crtname("example.com", timeout=10)
 
     assert run.success is False
     assert "timed out" in (run.error or "")
@@ -203,7 +203,7 @@ def test_crtname_network_timeout():
 
 def test_crtname_url_error():
     with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("Connection refused")):
-        observations, run, meta = run_crtname("example.com", timeout=10)
+        _, run, _ = run_crtname("example.com", timeout=10)
 
     assert run.success is False
     assert "network_error" in (run.error or "")
@@ -211,7 +211,7 @@ def test_crtname_url_error():
 
 def test_crtname_malformed_json():
     with patch("urllib.request.urlopen", return_value=io.BytesIO(b"<html>502 Bad Gateway</html>")):
-        observations, run, meta = run_crtname("example.com", timeout=10)
+        _, run, _ = run_crtname("example.com", timeout=10)
 
     assert run.success is False
     assert "malformed_json" in (run.error or "")
@@ -221,7 +221,7 @@ def test_crtname_response_too_large_protection():
     # Create stream exceeding 25MB limit
     huge_data = b"[" + b'{"sub":"a.example.com"},' * (2 * 1024 * 1024) + b'{"sub":"b.example.com"}]'
     with patch("urllib.request.urlopen", return_value=io.BytesIO(huge_data)):
-        observations, run, meta = run_crtname("example.com", timeout=10)
+        _, run, _ = run_crtname("example.com", timeout=10)
 
     assert run.success is False
     assert run.error == "response_too_large"

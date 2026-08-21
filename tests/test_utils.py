@@ -1,4 +1,5 @@
 import os
+
 from sub_enum.utils import ensure_path_context, normalize_candidate, validate_domain
 
 
