@@ -3,7 +3,7 @@ import json
 import socket
 import urllib.error
 import urllib.request
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -14,7 +14,7 @@ from sub_enum.tools import (
     reset_circuit_breakers,
     run_crtname,
 )
-from sub_enum.utils import extract_apex_domain, normalize_candidate
+from sub_enum.utils import extract_apex_domain
 
 
 @pytest.fixture(autouse=True)
