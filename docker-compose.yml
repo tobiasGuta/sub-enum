@@ -1,0 +1,10 @@
+services:
+  sub-enum:
+    build: .
+    image: sub-enum:0.2.0
+    volumes:
+      - ./scans:/scans
+      - ./targets.txt:/targets.txt:ro
+      # Optional: mount your Subfinder provider config for API-backed passive sources.
+      # - ~/.config/subfinder:/home/subenum/.config/subfinder:ro
+    command: ["scan", "-L", "/targets.txt", "--profile", "standard", "--output-root", "/scans"]

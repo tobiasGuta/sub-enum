@@ -1,0 +1,296 @@
+# Sub-Enum
+
+Sub-Enum is a focused subdomain-enumeration tool for bug bounty hunters and penetration testers. Its job is to turn a root domain into a **clean, in-scope, evidence-rich subdomain inventory** without becoming a general vulnerability scanner.
+
+## What v0.2 changes
+
+Sub-Enum now treats discovery quality and evidence as first-class data:
+
+- **Strict scope enforcement** on every candidate returned by external tools.
+- **Subfinder as the primary passive engine**, with contributing provider provenance preserved from JSONL output.
+- **crt.name built-in passive source** via native HTTP API, preserving provider `first_seen` timestamps without token requirements.
+- **Findomain as a secondary passive source** when installed.
+- **Assetfinder demoted to opt-in** (`--assetfinder`) so overlap can be measured instead of assumed useful.
+- **Chaos is expected through Subfinder's provider system**, not launched as a duplicate default command.
+- **dnsx JSONL validation** with wildcard-aware A resolution plus AAAA/CNAME enrichment.
+- **AlterX replaces altdns** for target-aware, enriched permutations.
+- **PureDNS + massdns are optional deep-mode tools** for large DNS validation/bruteforce workflows.
+- **httpx JSONL enrichment** rather than regex-parsing terminal output.
+- **Canonical `assets.jsonl`**, while keeping simple TXT files for shell pipelines.
+- **SQLite scan history**, `diff`, `history`, and per-source contribution reporting.
+- **Pinned tested external-tool refs** instead of `go install ...@latest`.
+- **Python 3.11+** and a flat modern package layout.
+
+Sub-Enum intentionally does **not** bundle web crawling, content discovery, template vulnerability scanning, SQL injection tooling, or exploit automation. Those are downstream tasks.
+
+## Pipeline
+
+```text
+root domain
+   |
+   v
+scope normalization / eTLD+1 resolution
+   |
+   v
+passive discovery
+   |- Subfinder (+ provider provenance)
+   |- crt.name (+ first_seen provenance)
+   |- Findomain (optional secondary source)
+   `- Assetfinder (opt-in compatibility source)
+   |
+   v
+DNS validation
+   |- dnsx (standard)
+   `- PureDNS/massdns (optional deep backend)
+   |
+   +--> wildcard filtering / DNS evidence
+   |
+   v
+AlterX target-aware permutations
+   |
+   v
+DNS validation of generated candidates
+   |
+   v
+httpx structured HTTP enrichment
+   |
+   v
+assets.jsonl + TXT exports + SQLite history
+```
+
+## Profiles
+
+### Passive
+
+Only passive enumeration and provenance collection.
+
+```bash
+sub-enum scan -d example.com --profile passive
+```
+
+### Standard
+
+The default bug-bounty workflow: passive discovery, DNS validation, bounded target-aware AlterX permutations, re-validation, and HTTP enrichment.
+
+```bash
+sub-enum scan -d example.com
+```
+
+### Deep
+
+Adds support for a PureDNS/massdns resolver backend and optional large wordlist brute forcing. Deep mode requires an explicit resolver list before PureDNS is used automatically.
+
+```bash
+sub-enum scan -d example.com \
+  --profile deep \
+  --resolvers resolvers.txt \
+  --wordlist subdomains.txt
+```
+
+PureDNS is deliberately optional because high-volume DNS enumeration needs a curated resolver list and different operational care than a normal scan.
+
+## Installation
+
+Python 3.11+ is required.
+
+### 1. Install Sub-Enum
+
+#### Option A: Isolated Global CLI via `pipx` (Recommended)
+
+```bash
+git clone https://github.com/tobiasGuta/sub-enum.git
+cd sub-enum
+pipx install .
+```
+
+*(For editable development: `pipx install --editable .`)*
+
+#### Option B: Virtual Environment (`venv`)
+
+```bash
+git clone https://github.com/tobiasGuta/sub-enum.git
+cd sub-enum
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+```
+
+### 2. External Recon Toolchain
+
+Sub-Enum orchestrates specialized, high-performance Go, Rust, and C binaries. Run the diagnostic tool to check your environment:
+
+```bash
+sub-enum doctor
+```
+
+#### Managed Go Tools (Automated)
+
+If Go 1.22+ is installed, Sub-Enum can automatically compile and install the pinned, tested Go binaries (`subfinder`, `dnsx`, `httpx`, `alterx`, `puredns`) directly to `~/.sub-enum/bin/`:
+
+```bash
+sub-enum doctor --install
+```
+
+#### Optional & Secondary Tools (Manual Setup)
+
+- **Findomain** (Secondary passive discovery engine):
+  ```bash
+  curl -LO https://github.com/Findomain/Findomain/releases/latest/download/findomain-linux.zip
+  unzip findomain-linux.zip
+  chmod +x findomain
+  sudo mv findomain /usr/local/bin/
+  ```
+
+- **MassDNS** (Required backend for `--profile deep` with PureDNS):
+  ```bash
+  git clone https://github.com/blechschmidt/massdns.git /tmp/massdns
+  cd /tmp/massdns && make
+  sudo cp bin/massdns /usr/local/bin/
+  ```
+
+- **Assetfinder** (Optional compatibility & benchmark source):
+  ```bash
+  GOBIN=~/.sub-enum/bin go install github.com/tomnomnom/assetfinder@4e95d8701aae8cff1c27af2626eb22ba110ad583
+  ```
+  *Enable during scans with the `--assetfinder` flag.*
+
+## Passive Discovery Sources
+
+### crt.name (Built-in HTTP API)
+
+Sub-Enum includes native support for `https://crt.name/` without requiring extra binary dependencies or API tokens:
+- **eTLD+1 Apex Resolution**: Automatically queries the apex domain (e.g. `example.com` when scanning `api.example.com`) while strictly filtering returned candidates to the target scope.
+- **Provider Timestamps**: Preserves historical `first_seen` timestamps in `provider_observations` while keeping Sub-Enum's own scan timestamps distinct.
+- **Circuit Breaker**: Detects HTTP 429 quota exhaustion and gracefully disables crt.name for remaining targets in the scan session without interrupting other passive sources.
+- **Opt-out**: Can be disabled via `--no-crtname`.
+
+### Subfinder API Providers
+
+Sub-Enum does not duplicate the entire passive-provider credential system. Configure API-backed sources in Subfinder's provider config (for example Chaos, GitHub, SecurityTrails, Censys, and other supported providers), then Sub-Enum preserves the contributing source names in `assets.jsonl`.
+
+Use:
+
+```bash
+subfinder -ls
+```
+
+to inspect the providers supported by your installed Subfinder build.
+
+## Outputs
+
+Each target gets its own directory:
+
+```text
+example.com/
+├── assets.jsonl
+├── all_subdomains.txt
+├── resolved_subdomains.txt
+├── live_subdomains.txt
+├── dangling_cname_candidates.txt
+├── wildcard_roots.txt
+├── source_stats.json
+└── run_manifest.json
+```
+
+### `assets.jsonl`
+
+This is the canonical Sub-Enum dataset. Each hostname can retain:
+
+- root domain
+- passive/provider sources
+- discovery methods (`passive`, `permutation`, `bruteforce`)
+- A / AAAA / CNAME evidence
+- wildcard state
+- dangling-CNAME candidate state
+- HTTP URL/status/title/technology/IP/CDN evidence
+- confidence classification
+- first/last observation timestamps
+
+Generated permutations are **not** treated as validated merely because AlterX produced them. DNS evidence is kept separate.
+
+### Confidence labels
+
+Sub-Enum uses explainable labels instead of a fake numeric risk score:
+
+- `confirmed` — DNS validated and observed by multiple discovery sources.
+- `resolved` — DNS validated.
+- `passive_only` — passively observed but not currently DNS validated.
+- `generated` — permutation/bruteforce candidate without validation.
+- `wildcard_suspect` — associated with wildcard evidence.
+- `dangling_cname_candidate` — CNAME evidence exists without A/AAAA evidence; this is a triage lead, **not a vulnerability claim**.
+
+## History and change detection
+
+Completed scans are stored in `~/.sub-enum/history.db` unless `--no-history` is used.
+
+```bash
+sub-enum history example.com
+sub-enum diff example.com
+sub-enum sources example.com
+```
+
+This makes recurring bug-bounty recon useful: new hosts, disappeared hosts, DNS changes, and HTTP changes can be surfaced without manually diffing text files.
+
+## Useful controls
+
+```bash
+# Multiple root domains
+sub-enum scan -L targets.txt --workers 4
+
+# Passive provider breadth
+sub-enum scan -d example.com --all-sources
+
+# Disable crt.name passive search
+sub-enum scan -d example.com --no-crtname
+
+# Disable Findomain secondary search
+sub-enum scan -d example.com --no-findomain
+
+# Disable target-aware mutations
+sub-enum scan -d example.com --no-permutations
+
+# Skip HTTP enrichment
+sub-enum scan -d example.com --no-http
+
+# Tune DNS/HTTP pressure
+sub-enum scan -d example.com --dns-rate 200 --http-threads 30
+
+# Opt into Assetfinder for comparison/coverage testing
+sub-enum scan -d example.com --assetfinder
+```
+
+The v0.1 invocation remains accepted:
+
+```bash
+sub-enum -d example.com
+```
+
+and is internally treated as a standard scan.
+
+## Docker
+
+The image builds pinned tested versions of Subfinder, dnsx, httpx, AlterX and PureDNS, plus a pinned massdns commit and Findomain release.
+
+```bash
+docker build -t sub-enum:0.2.0 .
+docker run --rm -v "$(pwd)/scans:/scans" sub-enum:0.2.0 \
+  scan -d example.com --output-root /scans
+```
+
+For API-backed Subfinder sources, mount your provider configuration read-only into the container.
+
+## Scope and responsible use
+
+Sub-Enum rejects external-tool output that does not equal the requested root domain or end in `.<root-domain>`. This prevents unrelated results from silently entering a bug-bounty target inventory.
+
+Use Sub-Enum only on assets you are authorized to test, and always follow the program's scope and automation rules.
+
+## Development
+
+```bash
+python -m pip install -e '.[dev]'
+pytest -q
+ruff check src tests
+```
+
+The orchestration layer intentionally remains Python for v0.2. The expensive enumeration, DNS, mutation and HTTP work is already performed by optimized Go/Rust tools; a Go rewrite should only be considered after the CLI/data model stabilizes and a single-binary/cross-platform requirement justifies the migration.
